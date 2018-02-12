@@ -15,18 +15,11 @@
  */
 package org.memcached.jcache;
 
+import net.spy.memcached.MemcachedClient;
+
 import java.lang.management.ManagementFactory;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.*;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.cache.Cache;
 import javax.cache.CacheException;
@@ -56,13 +49,16 @@ import javax.management.MBeanException;
 import javax.management.ObjectName;
 import javax.management.OperationsException;
 
-public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, RemovalListener<K, V> {
+import static java.lang.String.format;
+
+public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
   private final String cacheName;
   private final CompleteConfiguration<K, V> configuration;
   private final CacheManager cacheManager;
-
   private final Cache<K, V> cache;
-  private final ConcurrentMap<K, V> view;
+  private final Statistics statistics = new Statistics();
+  private String servers;
+  private MemcachedClient client;
 
   private final Set<CacheEntryListenerConfiguration<K, V>> cacheEntryListenerConfigurations;
 
@@ -75,32 +71,6 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, RemovalLis
 
     String properties = cacheManager.getProperties().toString();
 
-    CacheBuilderSpec cacheBuilderSpec =
-        CacheBuilderSpec.parse(properties.substring(1, properties.length() - 1));
-
-    CacheBuilder cacheBuilder = CacheBuilder.from(cacheBuilderSpec);
-
-    ExpiryPolicy expiryPolicy = configuration.getExpiryPolicyFactory().create();
-
-    if (expiryPolicy instanceof ModifiedExpiryPolicy) // == Memcached expire after write
-    {
-      Duration d = expiryPolicy.getExpiryForUpdate();
-
-      cacheBuilder.expireAfterWrite(d.getDurationAmount(), d.getTimeUnit());
-    } else if (expiryPolicy instanceof TouchedExpiryPolicy) // == Memcached expire after access
-    {
-      Duration d = expiryPolicy.getExpiryForAccess();
-
-      cacheBuilder.expireAfterAccess(d.getDurationAmount(), d.getTimeUnit());
-    }
-
-    this.cacheEntryListenerConfigurations =
-        Sets.newHashSet(configuration.getCacheEntryListenerConfigurations());
-
-    if (!this.cacheEntryListenerConfigurations.isEmpty()) {
-      cacheBuilder = cacheBuilder.removalListener(this);
-    }
-
     if (configuration.isManagementEnabled()) {
       MemcachedCacheMXBean bean = new MemcachedCacheMXBean(this);
 
@@ -112,25 +82,44 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, RemovalLis
       }
     }
 
-    if (configuration.isStatisticsEnabled()) {
-      MemcachedCacheStatisticsMXBean bean = new MemcachedCacheStatisticsMXBean(this);
+    if (configuration.isManagementEnabled()) {
+      MemcachedCacheMXBean bean = new MemcachedCacheMXBean(this);
 
       try {
         ManagementFactory.getPlatformMBeanServer()
-            .registerMBean(bean, new ObjectName(bean.getObjectName()));
+                .registerMBean(bean, new ObjectName(bean.getObjectName()));
       } catch (OperationsException | MBeanException e) {
         throw new CacheException(e);
       }
-
-      cacheBuilder.recordStats();
     }
+
+    if (configuration.isStatisticsEnabled()) {
+      MemcachedCacheStatisticsMXBean bean = new MemcachedCacheStatisticsMXBean(statistics);
+
+      try {
+        ManagementFactory.getPlatformMBeanServer()
+                .registerMBean(bean, new ObjectName(bean.getObjectName()));
+      } catch (OperationsException | MBeanException e) {
+        throw new CacheException(e);
+      }
+    }
+
+
+    final int poolSize = Integer.parseInt(property(properties, cacheName, "pool.size", "3"));
+    final DaemonThreadFactory threadFactory = new DaemonThreadFactory("MemcacheD-JCache-" + cacheName + "-");
+    executorService = poolSize > 0 ?
+            Executors.newFixedThreadPool(poolSize, threadFactory) :
+            Executors.newCachedThreadPool(threadFactory);
+    servers = properties.getProperty("servers", "127.0.0.1:11211");
+
 
     if (configuration.isReadThrough()) {
       Factory<CacheLoader<K, V>> factory = configuration.getCacheLoaderFactory();
 
-      this.cache = (Cache<K, V>) cacheBuilder.build(new MemcachedCacheLoader<>(factory.create()));
+      MemcachedCacheLoader cacheLoader = new MemcachedCacheLoader<>(factory.create());
+      this.cache = (Cache<K, V>) cacheLoader;
     } else {
-      this.cache = (Cache<K, V>) cacheBuilder.build();
+      this.cache = (Cache<K, V>) cache;
     }
 
     this.view = cache.asMap();
@@ -573,4 +562,5 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, RemovalLis
       }
     }
   }
+
 }
