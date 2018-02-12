@@ -18,7 +18,7 @@ package org.memcached.jcache;
 import java.util.Map;
 import javax.cache.integration.CacheLoader;
 
-public class MemcachedCacheLoader<K, V> implements javax.cache.integration.CacheLoader<K, V> {
+public class MemcachedCacheLoader<K extends String, V> implements javax.cache.integration.CacheLoader<K, V> {
   private final CacheLoader<K, V> delegate;
 
   public MemcachedCacheLoader(CacheLoader<K, V> delegate) {
