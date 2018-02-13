@@ -113,7 +113,7 @@ public class MemcachedCacheEventTest {
       while (myCacheEntryListener.getExpired() != 3) {
         Thread.sleep(250);
 
-        cache2.unwrap(MemcachedCache.class).cleanUp();
+        cache2.clear();
       }
     }
   }

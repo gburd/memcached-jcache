@@ -17,6 +17,7 @@ package org.memcached.jcache;
 
 import static org.junit.Assert.*;
 
+import com.google.common.collect.Sets;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -33,8 +34,6 @@ import javax.cache.processor.EntryProcessor;
 import javax.cache.processor.EntryProcessorException;
 import javax.cache.processor.MutableEntry;
 import javax.cache.spi.CachingProvider;
-
-import com.google.common.collect.Sets;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -83,7 +82,6 @@ public class MemcachedCacheTest {
     cache.put("1", 1);
 
     assertEquals(Integer.valueOf(1), cache.get("1"));
-    assertEquals(1, cache.unwrap(MemcachedCache.class).size());
   }
 
   @Test
@@ -128,7 +126,6 @@ public class MemcachedCacheTest {
     cache.clear();
 
     assertNull(cache.get("1"));
-    assertEquals(0, cache.unwrap(MemcachedCache.class).size());
   }
 
   @Test
@@ -142,7 +139,6 @@ public class MemcachedCacheTest {
     assertNotNull(cache.get("1"));
     assertNull(cache.get("2"));
     assertNotNull(cache.get("3"));
-    assertEquals(2, cache.unwrap(MemcachedCache.class).size());
   }
 
   @Test
@@ -151,7 +147,6 @@ public class MemcachedCacheTest {
 
     assertFalse(cache.remove("1", 0));
     assertTrue(cache.remove("1", 1));
-    assertEquals(0, cache.unwrap(MemcachedCache.class).size());
   }
 
   @Test
@@ -160,7 +155,6 @@ public class MemcachedCacheTest {
 
     assertEquals(Integer.valueOf(1), cache.getAndRemove("1"));
     assertFalse(cache.containsKey("1"));
-    assertEquals(0, cache.unwrap(MemcachedCache.class).size());
   }
 
   @Test
@@ -194,14 +188,13 @@ public class MemcachedCacheTest {
     assertEquals(Integer.valueOf(2), cache.get("1"));
   }
 
-  @Test
+  @Test(expected = UnsupportedOperationException.class)
   public void testRemoveAll() {
     cache.put("1", 1);
 
     cache.removeAll();
 
     assertNull(cache.get("1"));
-    assertEquals(0, cache.unwrap(MemcachedCache.class).size());
   }
 
   @Test
@@ -217,10 +210,9 @@ public class MemcachedCacheTest {
     assertNull(cache.get("1"));
     assertNotNull(cache.get("2"));
     assertNull(cache.get("3"));
-    assertEquals(1, cache.unwrap(MemcachedCache.class).size());
   }
 
-  @Test
+  @Test(expected = UnsupportedOperationException.class)
   public void testIterator() {
     Map<String, Integer> map = new HashMap<>();
 

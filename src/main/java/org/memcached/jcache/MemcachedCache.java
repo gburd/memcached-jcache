@@ -19,8 +19,6 @@ import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -32,25 +30,15 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
-
-import javax.annotation.PreDestroy;
 import javax.cache.CacheException;
 import javax.cache.CacheManager;
 import javax.cache.configuration.CacheEntryListenerConfiguration;
 import javax.cache.configuration.CompleteConfiguration;
 import javax.cache.configuration.Configuration;
 import javax.cache.configuration.Factory;
-import javax.cache.event.CacheEntryCreatedListener;
-import javax.cache.event.CacheEntryEvent;
-import javax.cache.event.CacheEntryExpiredListener;
-import javax.cache.event.CacheEntryListener;
-import javax.cache.event.CacheEntryListenerException;
-import javax.cache.event.CacheEntryRemovedListener;
-import javax.cache.event.CacheEntryUpdatedListener;
-import javax.cache.event.EventType;
 import javax.cache.integration.CacheLoader;
 import javax.cache.integration.CompletionListener;
 import javax.cache.processor.EntryProcessor;
@@ -59,8 +47,10 @@ import javax.cache.processor.EntryProcessorResult;
 import javax.management.MBeanException;
 import javax.management.ObjectName;
 import javax.management.OperationsException;
-
 import net.spy.memcached.AddrUtil;
+import net.spy.memcached.BinaryConnectionFactory;
+import net.spy.memcached.CASMutation;
+import net.spy.memcached.CASMutator;
 import net.spy.memcached.CASResponse;
 import net.spy.memcached.CASValue;
 import net.spy.memcached.ConnectionObserver;
@@ -68,23 +58,24 @@ import net.spy.memcached.MemcachedClient;
 import net.spy.memcached.internal.OperationFuture;
 import net.spy.memcached.transcoders.Transcoder;
 
-public class MemcachedCache<K extends String, V> implements javax.cache.Cache<K, V> {
+public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
+  private static final Logger LOG = Logger.getLogger(MemcachedCache.class.getName());
+  private static final int MAX_CAS_RETRIES = 10;
+
   private final String cacheName;
   private final CompleteConfiguration<K, V> configuration;
   private final CacheManager cacheManager;
   private final Statistics statistics = new Statistics();
   private final String servers;
   private final MemcachedCacheLoader cacheLoader;
-  private final Transcoder<V> transcoder;
   private final int expiry;
+  private final AtomicBoolean closed = new AtomicBoolean();
+  private Transcoder<V> transcoder;
   private MemcachedClient client;
   private ExecutorService executorService;
 
-  //private final Set<CacheEntryListenerConfiguration<K, V>> cacheEntryListenerConfigurations;
-
-  private final AtomicBoolean closed = new AtomicBoolean();
-
-  public MemcachedCache(String cacheName, CompleteConfiguration<K, V> configuration, CacheManager cacheManager) {
+  public MemcachedCache(
+      String cacheName, CompleteConfiguration<K, V> configuration, CacheManager cacheManager) {
     this.cacheName = cacheName;
     this.configuration = configuration;
     this.cacheManager = cacheManager;
@@ -102,17 +93,6 @@ public class MemcachedCache<K extends String, V> implements javax.cache.Cache<K,
       }
     }
 
-    if (configuration.isManagementEnabled()) {
-      MemcachedCacheMXBean bean = new MemcachedCacheMXBean(this);
-
-      try {
-        ManagementFactory.getPlatformMBeanServer()
-                .registerMBean(bean, new ObjectName(bean.getObjectName()));
-      } catch (OperationsException | MBeanException e) {
-        throw new CacheException(e);
-      }
-    }
-
     servers = properties.getProperty("servers", "127.0.0.1:11211");
     expiry = Integer.parseUnsignedInt(properties.getProperty("expiry", "3600"));
 
@@ -121,145 +101,168 @@ public class MemcachedCache<K extends String, V> implements javax.cache.Cache<K,
 
       cacheLoader = new MemcachedCacheLoader<>(factory.create());
     } else {
-          cacheLoader = null;
+      cacheLoader = null;
     }
 
     if (configuration.isStatisticsEnabled()) {
       MemcachedCacheStatisticsMXBean bean = new MemcachedCacheStatisticsMXBean(statistics);
 
       try {
-        ManagementFactory.getPlatformMBeanServer().registerMBean(bean, new ObjectName(bean.getObjectName(this)));
+        ManagementFactory.getPlatformMBeanServer()
+            .registerMBean(bean, new ObjectName(bean.getObjectName(this)));
       } catch (OperationsException | MBeanException e) {
         throw new CacheException(e);
       }
     }
     closed.set(true);
     client = connect(properties);
+
+    transcoder = (Transcoder<V>) client.<V>getTranscoder();
+    try {
+      String className = property(properties, "serializer", cacheName, "");
+      if (className != null && !className.equals("")) {
+        try {
+          transcoder =
+              Transcoder.class.cast(
+                  this.getClass().getClassLoader().loadClass(className).newInstance());
+        } catch (ClassNotFoundException e) {
+          System.out.println(cacheName);
+          e.printStackTrace();
+          System.out.println(e);
+          throw e;
+        }
+      }
+    } catch (final Exception e) {
+      throw new IllegalArgumentException(e);
+    }
   }
 
   private MemcachedClient connect(Properties properties) {
-      MemcachedClient client = null;
-      if (executorService != null && !executorService.isShutdown()) {
-          executorService.shutdownNow();
-      }
-      final int poolSize = Integer.parseInt(property(properties, cacheName, "pool.size", "3"));
-      final DaemonThreadFactory threadFactory = new DaemonThreadFactory("MemcacheD-JCache-" + cacheName + "-");
-      executorService = poolSize > 0 ? Executors.newFixedThreadPool(poolSize, threadFactory) :
-              Executors.newCachedThreadPool(threadFactory);
-      if (servers == null) {
-          throw new NullPointerException("servers is null");
-      }
-      List<InetSocketAddress> addresses = AddrUtil.getAddresses(servers);
-      assert addresses != null;
-      assert addresses.size() > 0;
+    MemcachedClient client = null;
+    if (executorService != null && !executorService.isShutdown()) {
+      executorService.shutdownNow();
+    }
+    final int poolSize = Integer.parseInt(property(properties, cacheName, "pool.size", "3"));
+    final DaemonThreadFactory threadFactory =
+        new DaemonThreadFactory("MemcacheD-JCache-" + cacheName + "-");
+    executorService =
+        poolSize > 0
+            ? Executors.newFixedThreadPool(poolSize, threadFactory)
+            : Executors.newCachedThreadPool(threadFactory);
+    if (servers == null) {
+      throw new NullPointerException("servers is null");
+    }
+    List<InetSocketAddress> addresses = AddrUtil.getAddresses(servers);
+    assert addresses != null;
+    assert addresses.size() > 0;
 
-      try {
-          client = new MemcachedClient(addresses);
-          if (client != null) {
-              client.addObserver(new ConnectionObserver() {
+    try {
+      client = new MemcachedClient(new BinaryConnectionFactory(), addresses);
+      if (client != null) {
+        client.addObserver(
+            new ConnectionObserver() {
 
-                  @Override
-                  public void connectionEstablished(SocketAddress socketAddress, int i) {
-                      closed.set(false);
-                  }
+              @Override
+              public void connectionEstablished(SocketAddress socketAddress, int i) {
+                closed.set(false);
+              }
 
-                  @Override
-                  public void connectionLost(SocketAddress socketAddress) {
-                      closed.set(true);
-                  }
-              });
-          }
+              @Override
+              public void connectionLost(SocketAddress socketAddress) {
+                closed.set(true);
+              }
+            });
       }
-      catch (IOException e) {
-          throw new RuntimeException(e);
-      }
-      return client;
+      closed.set(false);
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+    return client;
   }
 
-  @PreDestroy
-    private void disconnect() {
-        try {
-            if (executorService != null && !executorService.isShutdown()) {
-                executorService.shutdown();
-                try {
-                    executorService.awaitTermination(10, TimeUnit.SECONDS);
-                }
-                catch (InterruptedException e) {
-                    if (!executorService.isShutdown()) {
-                        executorService.shutdownNow();
-                    }
-                }
-            }
-
-            if (client != null) {
-                client.shutdown();
-            }
-        }
-        catch (Exception e) {
-            throw new CacheException(e);
-        } finally {
-            client = null;
-        }
-        closed.set(true);
-    }
-
-  private static String property(final Properties properties, final String cacheName, final String name, final String defaultValue) {
-    return properties.getProperty(cacheName + "." + name, properties.getProperty(name, defaultValue));
+  private static String property(
+      final Properties properties,
+      final String cacheName,
+      final String name,
+      final String defaultValue) {
+    return properties.getProperty(
+        cacheName + "." + name, properties.getProperty(name, defaultValue));
   }
 
   @Override
   public V get(K key) {
-      checkState();
+    checkState();
+    final boolean statisticsEnabled = configuration.isStatisticsEnabled();
+    final Timer timer = Timer.start(statisticsEnabled);
 
-      if (key == null) {
-          throw new NullPointerException();
+    if (key == null) {
+      throw new NullPointerException();
+    }
+
+    V value = client.<V>get(key.toString(), transcoder);
+    if (statisticsEnabled) {
+      if (value != null) {
+        statistics.increaseHits(1);
+      } else {
+        statistics.increaseMisses(1);
       }
+    }
 
-      if (configuration.isReadThrough()) {
-          cacheLoader.load(key);
-      }
+    if (value == null && cacheLoader != null && configuration.isReadThrough()) {
+      value = (V) cacheLoader.load(key);
+      client.set(key.toString(), expiry, value, transcoder);
+    }
 
-      return client.<V>get(key, transcoder);
+    if (statisticsEnabled) {
+      statistics.addGetTime(timer.elapsed());
+    }
+    return value;
   }
 
   @Override
   public Map<K, V> getAll(Set<? extends K> keys) {
-      checkState();
+    checkState();
+    final boolean statisticsEnabled = configuration.isStatisticsEnabled();
+    final Timer timer = Timer.start(statisticsEnabled);
 
-      if (keys == null || keys.contains(null)) {
-          throw new NullPointerException();
+    if (keys == null || keys.contains(null)) {
+      throw new NullPointerException();
+    }
+
+    Map<String, V> kvp =
+        client.<V>getBulk(
+            keys.stream().<String>map(key -> key.toString()).collect(Collectors.toSet()),
+            transcoder);
+    if (statisticsEnabled) {
+      statistics.increaseHits(kvp.size());
+    } else {
+      statistics.increaseMisses(keys.size() - kvp.size());
+    }
+
+    if (configuration.isReadThrough() && cacheLoader != null) {
+      Map<String, V> lkvp =
+          cacheLoader.loadAll(
+              keys.stream().filter(key -> kvp.containsKey(key)).collect(Collectors.toSet()));
+      for (Map.Entry<String, V> entry : lkvp.entrySet()) {
+        client.set(entry.getKey(), expiry, entry.getValue(), transcoder);
       }
-
-      if (configuration.isReadThrough() && cacheLoader != null) {
-          cacheLoader.loadAll(keys);
-      }
-
-      Map<String, V> values = client.<V>getBulk(keys.stream()
-                      .<String>map(key -> key)
-                      .collect(Collectors.toSet()),
-              transcoder);
-      return (Map<K, V>) values;
+      kvp.putAll(lkvp);
+    }
+    if (statisticsEnabled) {
+      statistics.addGetTime(timer.elapsed());
+    }
+    return (Map<K, V>) kvp;
   }
 
   @Override
   public boolean containsKey(K key) {
-      checkState();
+    checkState();
 
-      if (key == null) {
-          throw new NullPointerException();
-      }
-
-      return client.get(key) != null;
-  }
-
-  public void touchKey(K key) {
-      checkState();
-
-      if (key == null) {
-          throw new NullPointerException();
-      }
-
-      client.touch(key, expiry);
+    if (key == null) {
+      throw new NullPointerException();
+    }
+    V value = client.<V>get(key.toString(), transcoder);
+    return value != null;
   }
 
   @Override
@@ -282,9 +285,9 @@ public class MemcachedCache<K extends String, V> implements javax.cache.Cache<K,
             try {
               if (cacheLoader != null) {
                 for (K key : keys) {
-                  Object value = client.get(key);
+                  Object value = client.get(key.toString());
                   if (value == null || replaceExistingValues) {
-                      cacheLoader.load(key);
+                    cacheLoader.load(key);
                   }
                 }
               }
@@ -300,35 +303,59 @@ public class MemcachedCache<K extends String, V> implements javax.cache.Cache<K,
   @Override
   public void put(K key, V value) {
     checkState();
+    final boolean statisticsEnabled = configuration.isStatisticsEnabled();
+    final Timer timer = Timer.start(statisticsEnabled);
 
     if (key == null || value == null) {
       throw new NullPointerException();
     }
 
-      OperationFuture<Boolean> of = client.set(key, expiry, value);
-      try {
-          of.get();
-      } catch (InterruptedException | ExecutionException e) {
-          of.cancel();
+    OperationFuture<Boolean> of = client.set(key.toString(), expiry, value);
+    try {
+      of.get();
+      if (statisticsEnabled) {
+        statistics.increasePuts(1);
+        statistics.addGetTime(timer.elapsed());
       }
+    } catch (InterruptedException | ExecutionException e) {
+      of.cancel();
+    }
   }
 
   @Override
   public V getAndPut(K key, V value) {
-      checkState();
+    checkState();
+    final boolean statisticsEnabled = configuration.isStatisticsEnabled();
+    final Timer timer = Timer.start(statisticsEnabled);
 
-      if (key == null) {
-          throw new NullPointerException();
+    if (key == null) {
+      throw new NullPointerException();
+    }
+
+    V previousValue = client.<V>get(key.toString(), transcoder);
+    if (statisticsEnabled) {
+      statistics.addGetTime(timer.elapsed());
+      if (previousValue != null) {
+        statistics.increaseHits(1);
+      } else {
+        statistics.increaseMisses(1);
       }
+    }
+    if (previousValue == null && cacheLoader != null && configuration.isReadThrough()) {
+      previousValue = (V) cacheLoader.load(key);
+      // NOTE: skip setting the value here, we're about to change it
+      // client.set(key.toString(), expiry, previousValue, transcoder);
+    }
 
-      if (configuration.isReadThrough()) {
-          cacheLoader.load(key);
-      }
+    timer.reset();
+    client.set(key.toString(), expiry, value, transcoder);
 
-      // TODO(gburd): Is this really how CAS works for MemcacheD, I doubt it...
-      CASValue<V> casValue = client.<V>gets(key, transcoder);
-      CASResponse casResponse = client.cas(key, casValue.getCas(), expiry, value, transcoder);
-      return casValue.getValue();
+    if (statisticsEnabled) {
+      timer.stop();
+      statistics.increasePuts(1);
+      statistics.addPutTime(timer.elapsed());
+    }
+    return previousValue;
   }
 
   @Override
@@ -339,18 +366,18 @@ public class MemcachedCache<K extends String, V> implements javax.cache.Cache<K,
       throw new NullPointerException();
     }
 
-      Set<OperationFuture<Boolean>> ofs = new HashSet<>(map.size());
-      for (Map.Entry<? extends K, ? extends V> entry : map.entrySet()) {
-          ofs.add(client.set(entry.getKey(), expiry, entry.getValue()));
-      }
+    Set<OperationFuture<Boolean>> ofs = new HashSet<>(map.size());
+    for (Map.Entry<? extends K, ? extends V> entry : map.entrySet()) {
+      ofs.add(client.set(entry.getKey().toString(), expiry, entry.getValue()));
+    }
 
-      for (OperationFuture<Boolean> of : ofs) {
-          try {
-              of.get();
-          } catch (InterruptedException | ExecutionException e) {
-              of.cancel();
-          }
+    for (OperationFuture<Boolean> of : ofs) {
+      try {
+        of.get();
+      } catch (InterruptedException | ExecutionException e) {
+        of.cancel();
       }
+    }
   }
 
   @Override
@@ -361,7 +388,24 @@ public class MemcachedCache<K extends String, V> implements javax.cache.Cache<K,
       throw new NullPointerException();
     }
 
-    return (view.putIfAbsent(key, value) == null);
+    boolean applied = false;
+    CASMutator<V> mutator = new CASMutator<V>(client, transcoder, MAX_CAS_RETRIES);
+    V result = null;
+    try {
+      CASMutation<V> mutation =
+          new CASMutation<V>() {
+            public V getNewValue(V current) {
+              return value;
+            }
+          };
+      result = mutator.cas(key.toString(), (V) null, 0, mutation);
+      if (value.equals(result)) {
+        applied = true;
+      }
+    } catch (Exception e) {
+      applied = false;
+    }
+    return applied;
   }
 
   @Override
@@ -372,13 +416,13 @@ public class MemcachedCache<K extends String, V> implements javax.cache.Cache<K,
       throw new NullPointerException();
     }
 
-      OperationFuture<Boolean> of = client.delete(key);
-      try {
-          return of.get();
-      } catch (InterruptedException | ExecutionException e) {
-          of.cancel();
-          return false;
-      }
+    OperationFuture<Boolean> of = client.delete(key.toString());
+    try {
+      return of.get();
+    } catch (InterruptedException | ExecutionException e) {
+      of.cancel();
+      return false;
+    }
   }
 
   @Override
@@ -389,7 +433,16 @@ public class MemcachedCache<K extends String, V> implements javax.cache.Cache<K,
       throw new NullPointerException();
     }
 
-    return view.remove(key, oldValue);
+    boolean applied = false;
+    CASValue<V> casv = client.gets(key.toString(), transcoder);
+    if (casv != null && oldValue.equals(casv.getValue())) {
+      try {
+        applied = client.delete(key.toString(), casv.getCas()).get();
+      } catch (ExecutionException | InterruptedException e) {
+        applied = false;
+      }
+    }
+    return applied;
   }
 
   @Override
@@ -400,7 +453,19 @@ public class MemcachedCache<K extends String, V> implements javax.cache.Cache<K,
       throw new NullPointerException();
     }
 
-    return view.remove(key);
+    boolean applied = false;
+    CASValue<V> casv = client.gets(key.toString(), transcoder);
+    if (casv != null) {
+      try {
+        applied = client.delete(key.toString(), casv.getCas()).get();
+      } catch (ExecutionException | InterruptedException e) {
+        applied = false;
+      }
+      if (applied) {
+        return casv.getValue();
+      }
+    }
+    return null;
   }
 
   @Override
@@ -411,7 +476,13 @@ public class MemcachedCache<K extends String, V> implements javax.cache.Cache<K,
       throw new NullPointerException();
     }
 
-    return view.replace(key, oldValue, newValue);
+    boolean applied = false;
+    CASValue<V> casv = client.gets(key.toString(), transcoder);
+    if (casv != null && oldValue.equals(casv.getValue())) {
+      applied =
+          client.cas(key.toString(), casv.getCas(), expiry, newValue, transcoder) == CASResponse.OK;
+    }
+    return applied;
   }
 
   @Override
@@ -422,7 +493,13 @@ public class MemcachedCache<K extends String, V> implements javax.cache.Cache<K,
       throw new NullPointerException();
     }
 
-    return (view.replace(key, value) != null);
+    boolean applied = false;
+    CASValue<V> casv = client.gets(key.toString(), transcoder);
+    if (casv != null && casv.getValue() != null) {
+      applied =
+          client.cas(key.toString(), casv.getCas(), expiry, value, transcoder) == CASResponse.OK;
+    }
+    return applied;
   }
 
   @Override
@@ -433,7 +510,16 @@ public class MemcachedCache<K extends String, V> implements javax.cache.Cache<K,
       throw new NullPointerException();
     }
 
-    return view.replace(key, value);
+    boolean applied = false;
+    CASValue<V> casv = client.gets(key.toString(), transcoder);
+    if (casv != null && casv.getValue() != null) {
+      applied =
+          client.cas(key.toString(), casv.getCas(), expiry, value, transcoder) == CASResponse.OK;
+    }
+    if (applied) {
+      return casv.getValue();
+    }
+    return null;
   }
 
   @Override
@@ -444,21 +530,23 @@ public class MemcachedCache<K extends String, V> implements javax.cache.Cache<K,
       throw new NullPointerException();
     }
 
-    cache.invalidateAll(keys);
+    for (K key : keys) {
+      client.delete(key.toString());
+    }
   }
 
   @Override
   public void removeAll() {
     checkState();
 
-    cache.invalidateAll();
+    throw new UnsupportedOperationException();
   }
 
   @Override
   public void clear() {
     checkState();
 
-    view.clear();
+    client.flush();
   }
 
   @Override
@@ -517,9 +605,8 @@ public class MemcachedCache<K extends String, V> implements javax.cache.Cache<K,
   @Override
   public void close() {
     if (closed.compareAndSet(false, true)) {
-      cache.invalidateAll();
-      cache.cleanUp();
 
+      client.shutdown();
       ((MemcachedCacheManager) cacheManager).close(this);
 
       if (configuration.isManagementEnabled()) {
@@ -572,60 +659,7 @@ public class MemcachedCache<K extends String, V> implements javax.cache.Cache<K,
 
   @Override
   public Iterator<Entry<K, V>> iterator() {
-    checkState();
-
-    List<javax.cache.Cache.Entry<K, V>> list = new ArrayList<>();
-
-    for (final Map.Entry<K, V> entry : view.entrySet()) {
-      list.add(
-          new javax.cache.Cache.Entry<K, V>() {
-            @Override
-            public K getKey() {
-              return entry.getKey();
-            }
-
-            @Override
-            public V getValue() {
-              return entry.getValue();
-            }
-
-            @Override
-            public <T> T unwrap(Class<T> clazz) {
-              return clazz.cast(entry);
-            }
-          });
-    }
-
-    return Collections.unmodifiableList(list).iterator();
-  }
-
-  @Override
-  public void onRemoval(RemovalNotification<K, V> notification) {
-    switch (notification.getCause()) {
-      case EXPIRED:
-        notifyListeners(new MemcachedCacheEntryEvent<>(this, EventType.EXPIRED, notification));
-        break;
-
-      case EXPLICIT:
-        notifyListeners(new MemcachedCacheEntryEvent<>(this, EventType.REMOVED, notification));
-        break;
-
-      case REPLACED:
-        notifyListeners(new MemcachedCacheEntryEvent<>(this, EventType.UPDATED, notification));
-        break;
-    }
-  }
-
-  public void cleanUp() {
-    cache.cleanUp();
-  }
-
-  public long size() {
-    return cache.size();
-  }
-
-  public CacheStats stats() {
-    return cache.stats();
+    throw new UnsupportedOperationException();
   }
 
   private void checkState() {
@@ -634,88 +668,99 @@ public class MemcachedCache<K extends String, V> implements javax.cache.Cache<K,
     }
   }
 
-  private void notifyListeners(CacheEntryEvent<K, V> event) {
-    for (CacheEntryListenerConfiguration<K, V> listenerConfiguration :
-        cacheEntryListenerConfigurations) {
-      boolean invokeListener = true;
+  private static final class DaemonThreadFactory implements ThreadFactory {
+    private String prefix;
+    private boolean threadIsDaemon = true;
+    private int threadPriority = Thread.NORM_PRIORITY;
 
-      if (listenerConfiguration.getCacheEntryEventFilterFactory() != null) {
-        invokeListener =
-            listenerConfiguration.getCacheEntryEventFilterFactory().create().evaluate(event);
-      }
+    /**
+     * Constructor
+     *
+     * @param prefix thread name prefix
+     */
+    public DaemonThreadFactory(String prefix) {
+      this(prefix, Thread.NORM_PRIORITY);
+    }
 
-      if (invokeListener) {
-        CacheEntryListener<?, ?> cel =
-            listenerConfiguration.getCacheEntryListenerFactory().create();
+    /**
+     * Constructor
+     *
+     * @param prefix thread name prefix
+     * @param threadPriority set thread priority
+     */
+    public DaemonThreadFactory(String prefix, int threadPriority) {
+      this.prefix = prefix;
+      this.threadPriority = threadPriority;
+    }
 
-        switch (event.getEventType()) {
-          case CREATED:
-            if (cel instanceof CacheEntryCreatedListener) {
-              throw new CacheEntryListenerException("Not supported!");
-            }
-            break;
-
-          case EXPIRED:
-            if (cel instanceof CacheEntryExpiredListener) {
-              ((CacheEntryExpiredListener) cel).onExpired(Sets.newHashSet(event));
-            }
-            break;
-
-          case REMOVED:
-            if (cel instanceof CacheEntryRemovedListener) {
-              ((CacheEntryRemovedListener) cel).onRemoved(Sets.newHashSet(event));
-            }
-            break;
-
-          case UPDATED:
-            if (cel instanceof CacheEntryUpdatedListener) {
-              ((CacheEntryUpdatedListener) cel).onUpdated(Sets.newHashSet(event));
-            }
-            break;
-        }
-      }
+    /**
+     * Sets the thread to daemon.
+     *
+     * <p>
+     *
+     * @param runner
+     * @return a daemon thread
+     */
+    public Thread newThread(Runnable runner) {
+      Thread t = new Thread(runner);
+      String oldName = t.getName();
+      t.setName(prefix + oldName);
+      t.setDaemon(threadIsDaemon);
+      t.setPriority(threadPriority);
+      return t;
     }
   }
 
-    private static final class DaemonThreadFactory implements ThreadFactory {
-        private String prefix;
-        private boolean threadIsDaemon = true;
-        private int threadPriority = Thread.NORM_PRIORITY;
+  private static final class Timer {
+    long started;
+    long stopped = -1;
 
-        /**
-         * Constructor
-         *
-         * @param prefix thread name prefix
-         */
-        public DaemonThreadFactory(String prefix) {
-            this(prefix, Thread.NORM_PRIORITY);
-        }
-
-        /**
-         * Constructor
-         *
-         * @param prefix thread name prefix
-         * @param threadPriority set thread priority
-         */
-        public DaemonThreadFactory(String prefix, int threadPriority) {
-            this.prefix = prefix;
-            this.threadPriority = threadPriority;
-        }
-
-        /**
-         * Sets the thread to daemon.
-         * <p>
-         * @param runner
-         * @return a daemon thread
-         */
-        public Thread newThread(Runnable runner) {
-            Thread t = new Thread(runner);
-            String oldName = t.getName();
-            t.setName(prefix + oldName);
-            t.setDaemon(threadIsDaemon);
-            t.setPriority(threadPriority);
-            return t;
-        }
+    public static Timer start(final boolean ignore) {
+      if (!ignore) {
+        return new Timer(System.nanoTime() / 1000);
+      }
+      return new Timer(-1);
     }
 
+    private Timer(final long started) {
+      this.started = started;
+    }
+
+    public void reset() {
+      if (started != -1) {
+        started = System.nanoTime() / 1000;
+        stopped = -1;
+      }
+    }
+
+    public void stop() {
+      if (stopped == -1) {
+        stopped = System.nanoTime() / 1000;
+      }
+    }
+
+    public long started() {
+      return started > -1 ? started : 0;
+    }
+
+    public long stopped() {
+      return stopped == -1 ? 0 : stopped;
+    }
+
+    public long elapsed() {
+      if (started > 0) {
+        long now = System.nanoTime() / 1000;
+        return now - started;
+      }
+      return 0;
+    }
+
+    public long get() {
+      if (started > 0) {
+        stop();
+        return stopped - started;
+      }
+      return 0;
+    }
+  }
 }

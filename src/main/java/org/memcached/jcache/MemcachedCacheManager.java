@@ -17,7 +17,9 @@ package org.memcached.jcache;
 
 import java.net.URI;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -91,7 +93,7 @@ public class MemcachedCacheManager implements javax.cache.CacheManager {
         throw new CacheException("This cache already exists!");
       }
 
-      Cache<K, V> cache = new MemcachedCache<>(cacheName, completeConfiguration, this);
+      Cache<K, V> cache = new MemcachedCache<K, V>(cacheName, completeConfiguration, this);
 
       caches.put(cacheName, cache);
 
@@ -130,7 +132,10 @@ public class MemcachedCacheManager implements javax.cache.CacheManager {
   public Iterable<String> getCacheNames() {
     checkState();
 
-    return Collections.unmodifiableSet(caches.keySet());
+    // An "unmodifiable" set will still reference the mutable keySet(), so copy it first.
+    Set<String> keys = new HashSet<String>(caches.keySet().size());
+    keys.addAll(caches.keySet());
+    return Collections.unmodifiableSet(keys);
   }
 
   @Override
@@ -144,6 +149,7 @@ public class MemcachedCacheManager implements javax.cache.CacheManager {
     Cache<?, ?> cache = caches.remove(cacheName);
 
     if (cache != null) {
+      cache.clear();
       cache.close();
     }
   }
