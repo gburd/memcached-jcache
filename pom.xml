@@ -13,7 +13,7 @@
 
     <groupId>org.memcached</groupId>
     <artifactId>memcached-jcache</artifactId>
-    <version>1.0.1-SNAPSHOT</version>
+    <version>1.0</version>
     <packaging>jar</packaging>
 
     <name>JSR107 JCache (javax.jcache) implementation for MemcacheD</name>
