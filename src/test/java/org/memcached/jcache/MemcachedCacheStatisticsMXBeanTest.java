@@ -77,8 +77,8 @@ public class MemcachedCacheStatisticsMXBeanTest {
 
       assertEquals("cache hits", 3L, cacheHits);
       assertEquals("cache misses", 1L, cacheMisses);
-      assertEquals("cache hit percentage", 0.75F, cacheHitPercentage);
-      assertEquals("cache miss percentage", 0.25F, cacheMissPercentage);
+      assertEquals("cache hit percentage", 75.0F, cacheHitPercentage);
+      assertEquals("cache miss percentage", 25.0F, cacheMissPercentage);
 
       beanServer.invoke(name, "clear", null, null);
 

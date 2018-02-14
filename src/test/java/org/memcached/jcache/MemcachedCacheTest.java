@@ -22,6 +22,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 import javax.cache.Cache;
 import javax.cache.CacheManager;
@@ -51,14 +52,20 @@ public class MemcachedCacheTest {
   public void init() {
     cachingProvider = Caching.getCachingProvider(MemcachedCachingProvider.class.getName());
     assertNotNull(cachingProvider);
-
-    cacheManager = cachingProvider.getCacheManager();
+    int port = 11211;
+    Properties properties = cachingProvider.getDefaultProperties();
+    properties.setProperty("servers", "127.0.0.1:" + String.valueOf(port));
+    properties.setProperty("maximumSize", "1000000");
+    cacheManager =
+        cachingProvider.getCacheManager(
+            cachingProvider.getDefaultURI(), this.getClass().getClassLoader(), properties);
     assertNotNull(cacheManager);
 
     configuration.setStoreByValue(false);
     configuration.setTypes(String.class, Integer.class);
 
     cache = cacheManager.createCache("cache", configuration);
+    cache.clear();
     assertNotNull(cache);
     assertEquals("cache", cache.getName());
     assertEquals(cacheManager, cache.getCacheManager());

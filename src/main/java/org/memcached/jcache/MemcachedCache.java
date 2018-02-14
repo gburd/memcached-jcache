@@ -49,8 +49,6 @@ import javax.management.ObjectName;
 import javax.management.OperationsException;
 import net.spy.memcached.AddrUtil;
 import net.spy.memcached.BinaryConnectionFactory;
-import net.spy.memcached.CASMutation;
-import net.spy.memcached.CASMutator;
 import net.spy.memcached.CASResponse;
 import net.spy.memcached.CASValue;
 import net.spy.memcached.ConnectionObserver;
@@ -60,7 +58,6 @@ import net.spy.memcached.transcoders.Transcoder;
 
 public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
   private static final Logger LOG = Logger.getLogger(MemcachedCache.class.getName());
-  private static final int MAX_CAS_RETRIES = 10;
 
   private final String cacheName;
   private final CompleteConfiguration<K, V> configuration;
@@ -116,7 +113,6 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
     }
     closed.set(true);
     client = connect(properties);
-
     transcoder = (Transcoder<V>) client.<V>getTranscoder();
     try {
       String className = property(properties, "serializer", cacheName, "");
@@ -193,7 +189,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
   public V get(K key) {
     checkState();
     final boolean statisticsEnabled = configuration.isStatisticsEnabled();
-    final Timer timer = Timer.start(statisticsEnabled);
+    final Timer timer = Timer.start(!statisticsEnabled);
 
     if (key == null) {
       throw new NullPointerException();
@@ -223,7 +219,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
   public Map<K, V> getAll(Set<? extends K> keys) {
     checkState();
     final boolean statisticsEnabled = configuration.isStatisticsEnabled();
-    final Timer timer = Timer.start(statisticsEnabled);
+    final Timer timer = Timer.start(!statisticsEnabled);
 
     if (keys == null || keys.contains(null)) {
       throw new NullPointerException();
@@ -235,21 +231,22 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
             transcoder);
     if (statisticsEnabled) {
       statistics.increaseHits(kvp.size());
-    } else {
       statistics.increaseMisses(keys.size() - kvp.size());
     }
+    timer.stop();
 
     if (configuration.isReadThrough() && cacheLoader != null) {
       Map<String, V> lkvp =
           cacheLoader.loadAll(
-              keys.stream().filter(key -> kvp.containsKey(key)).collect(Collectors.toSet()));
-      for (Map.Entry<String, V> entry : lkvp.entrySet()) {
-        client.set(entry.getKey(), expiry, entry.getValue(), transcoder);
-      }
+              keys.stream().filter(key -> !kvp.containsKey(key)).collect(Collectors.toSet()));
+      lkvp.entrySet()
+          .parallelStream()
+          .forEach(entry -> client.set(entry.getKey(), expiry, entry.getValue(), transcoder));
       kvp.putAll(lkvp);
     }
+
     if (statisticsEnabled) {
-      statistics.addGetTime(timer.elapsed());
+      statistics.addGetTime(timer.get() / kvp.size());
     }
     return (Map<K, V>) kvp;
   }
@@ -261,7 +258,9 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
     if (key == null) {
       throw new NullPointerException();
     }
+
     V value = client.<V>get(key.toString(), transcoder);
+
     return value != null;
   }
 
@@ -276,7 +275,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
       throw new NullPointerException();
     }
 
-    ExecutorService executorService = Executors.newSingleThreadExecutor();
+    //ExecutorService executorService = Executors.newSingleThreadExecutor();
 
     executorService.submit(
         new Runnable() {
@@ -287,7 +286,8 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
                 for (K key : keys) {
                   Object value = client.get(key.toString());
                   if (value == null || replaceExistingValues) {
-                    cacheLoader.load(key);
+                    V loadedValue = (V) cacheLoader.load(key);
+                    client.add(key.toString(), expiry, loadedValue, transcoder);
                   }
                 }
               }
@@ -304,7 +304,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
   public void put(K key, V value) {
     checkState();
     final boolean statisticsEnabled = configuration.isStatisticsEnabled();
-    final Timer timer = Timer.start(statisticsEnabled);
+    final Timer timer = Timer.start(!statisticsEnabled);
 
     if (key == null || value == null) {
       throw new NullPointerException();
@@ -326,28 +326,19 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
   public V getAndPut(K key, V value) {
     checkState();
     final boolean statisticsEnabled = configuration.isStatisticsEnabled();
-    final Timer timer = Timer.start(statisticsEnabled);
 
     if (key == null) {
       throw new NullPointerException();
     }
 
     V previousValue = client.<V>get(key.toString(), transcoder);
-    if (statisticsEnabled) {
-      statistics.addGetTime(timer.elapsed());
-      if (previousValue != null) {
-        statistics.increaseHits(1);
-      } else {
-        statistics.increaseMisses(1);
-      }
-    }
     if (previousValue == null && cacheLoader != null && configuration.isReadThrough()) {
       previousValue = (V) cacheLoader.load(key);
       // NOTE: skip setting the value here, we're about to change it
       // client.set(key.toString(), expiry, previousValue, transcoder);
     }
 
-    timer.reset();
+    final Timer timer = Timer.start(!statisticsEnabled);
     client.set(key.toString(), expiry, value, transcoder);
 
     if (statisticsEnabled) {
@@ -361,6 +352,8 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
   @Override
   public void putAll(Map<? extends K, ? extends V> map) {
     checkState();
+    final boolean statisticsEnabled = configuration.isStatisticsEnabled();
+    final Timer timer = Timer.start(!statisticsEnabled);
 
     if (map == null || map.containsKey(null) || map.containsValue(null)) {
       throw new NullPointerException();
@@ -378,32 +371,34 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
         of.cancel();
       }
     }
+
+    if (statisticsEnabled) {
+      timer.stop();
+      statistics.increasePuts(map.size());
+      statistics.addPutTime(timer.elapsed() / map.size());
+    }
   }
 
   @Override
   public boolean putIfAbsent(K key, V value) {
     checkState();
+    final boolean statisticsEnabled = configuration.isStatisticsEnabled();
+    final Timer timer = Timer.start(!statisticsEnabled);
 
     if (key == null || value == null) {
       throw new NullPointerException();
     }
 
-    boolean applied = false;
-    CASMutator<V> mutator = new CASMutator<V>(client, transcoder, MAX_CAS_RETRIES);
-    V result = null;
+    boolean applied;
     try {
-      CASMutation<V> mutation =
-          new CASMutation<V>() {
-            public V getNewValue(V current) {
-              return value;
-            }
-          };
-      result = mutator.cas(key.toString(), (V) null, 0, mutation);
-      if (value.equals(result)) {
-        applied = true;
-      }
-    } catch (Exception e) {
+      applied = client.add(key.toString(), expiry, value, transcoder).get();
+    } catch (ExecutionException | InterruptedException e) {
       applied = false;
+    }
+
+    if (statisticsEnabled) {
+      statistics.increasePuts(1);
+      statistics.addPutTime(timer.elapsed());
     }
     return applied;
   }
@@ -411,23 +406,34 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
   @Override
   public boolean remove(K key) {
     checkState();
+    final boolean statisticsEnabled = configuration.isStatisticsEnabled();
+    final Timer timer = Timer.start(!statisticsEnabled);
 
     if (key == null) {
       throw new NullPointerException();
     }
 
     OperationFuture<Boolean> of = client.delete(key.toString());
+    boolean applied;
     try {
-      return of.get();
+      applied = of.get();
     } catch (InterruptedException | ExecutionException e) {
       of.cancel();
-      return false;
+      applied = false;
     }
+
+    if (statisticsEnabled) {
+      statistics.increaseRemovals(1);
+      statistics.addRemoveTime(timer.elapsed());
+    }
+    return applied;
   }
 
   @Override
   public boolean remove(K key, V oldValue) {
     checkState();
+    final boolean statisticsEnabled = configuration.isStatisticsEnabled();
+    final Timer timer = Timer.start(!statisticsEnabled);
 
     if (key == null || oldValue == null) {
       throw new NullPointerException();
@@ -442,12 +448,18 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
         applied = false;
       }
     }
+
+    if (statisticsEnabled) {
+      statistics.increaseRemovals(1);
+      statistics.addRemoveTime(timer.elapsed());
+    }
     return applied;
   }
 
   @Override
   public V getAndRemove(K key) {
     checkState();
+    final boolean statisticsEnabled = configuration.isStatisticsEnabled();
 
     if (key == null) {
       throw new NullPointerException();
@@ -455,22 +467,34 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
 
     boolean applied = false;
     CASValue<V> casv = client.gets(key.toString(), transcoder);
+
+    final Timer timer = Timer.start(!statisticsEnabled);
+    V value = null;
     if (casv != null) {
+
       try {
-        applied = client.delete(key.toString(), casv.getCas()).get();
+        OperationFuture<Boolean> booleanOperationFuture =
+            client.delete(key.toString(), casv.getCas());
+        applied = booleanOperationFuture.get();
+        if (statisticsEnabled) {
+          statistics.increaseRemovals(1);
+          statistics.addRemoveTime(timer.elapsed());
+        }
       } catch (ExecutionException | InterruptedException e) {
         applied = false;
       }
       if (applied) {
-        return casv.getValue();
+        value = casv.getValue();
       }
     }
-    return null;
+
+    return value;
   }
 
   @Override
   public boolean replace(K key, V oldValue, V newValue) {
     checkState();
+    final boolean statisticsEnabled = configuration.isStatisticsEnabled();
 
     if (key == null || oldValue == null || newValue == null) {
       throw new NullPointerException();
@@ -478,26 +502,41 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
 
     boolean applied = false;
     CASValue<V> casv = client.gets(key.toString(), transcoder);
+
+    final Timer timer = Timer.start(!statisticsEnabled);
     if (casv != null && oldValue.equals(casv.getValue())) {
-      applied =
-          client.cas(key.toString(), casv.getCas(), expiry, newValue, transcoder) == CASResponse.OK;
+      timer.reset();
+      CASResponse casr = client.cas(key.toString(), casv.getCas(), expiry, newValue, transcoder);
+      applied = (casr == CASResponse.OK);
+      if (statisticsEnabled) {
+        statistics.increaseRemovals(1);
+        statistics.addRemoveTime(timer.elapsed());
+      }
     }
+
     return applied;
   }
 
   @Override
   public boolean replace(K key, V value) {
     checkState();
+    final boolean statisticsEnabled = configuration.isStatisticsEnabled();
+    final Timer timer = Timer.start(!statisticsEnabled);
 
     if (key == null || value == null) {
       throw new NullPointerException();
     }
 
     boolean applied = false;
-    CASValue<V> casv = client.gets(key.toString(), transcoder);
-    if (casv != null && casv.getValue() != null) {
-      applied =
-          client.cas(key.toString(), casv.getCas(), expiry, value, transcoder) == CASResponse.OK;
+    try {
+      applied = client.replace(key.toString(), expiry, value, transcoder).get();
+    } catch (ExecutionException | InterruptedException e) {
+      applied = false;
+    }
+
+    if (statisticsEnabled && applied) {
+      statistics.increaseRemovals(1);
+      statistics.addRemoveTime(timer.elapsed());
     }
     return applied;
   }
@@ -505,6 +544,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
   @Override
   public V getAndReplace(K key, V value) {
     checkState();
+    final boolean statisticsEnabled = configuration.isStatisticsEnabled();
 
     if (key == null || value == null) {
       throw new NullPointerException();
@@ -512,11 +552,17 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
 
     boolean applied = false;
     CASValue<V> casv = client.gets(key.toString(), transcoder);
+
+    final Timer timer = Timer.start(!statisticsEnabled);
     if (casv != null && casv.getValue() != null) {
       applied =
           client.cas(key.toString(), casv.getCas(), expiry, value, transcoder) == CASResponse.OK;
     }
     if (applied) {
+      if (statisticsEnabled) {
+        statistics.increaseRemovals(1);
+        statistics.addRemoveTime(timer.elapsed());
+      }
       return casv.getValue();
     }
     return null;
@@ -525,13 +571,22 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
   @Override
   public void removeAll(Set<? extends K> keys) {
     checkState();
+    final boolean statisticsEnabled = configuration.isStatisticsEnabled();
+    final Timer timer = Timer.start(!statisticsEnabled);
 
     if (keys == null || keys.contains(null)) {
       throw new NullPointerException();
     }
 
     for (K key : keys) {
+      if (statisticsEnabled) {
+        timer.reset();
+      }
       client.delete(key.toString());
+      if (statisticsEnabled) {
+        statistics.increaseRemovals(1);
+        statistics.addRemoveTime(timer.elapsed());
+      }
     }
   }
 

@@ -17,6 +17,7 @@ package org.memcached.jcache;
 
 import static org.junit.Assert.*;
 
+import com.google.common.collect.Sets;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -31,8 +32,6 @@ import javax.cache.integration.CacheLoader;
 import javax.cache.integration.CacheLoaderException;
 import javax.cache.integration.CompletionListener;
 import javax.cache.spi.CachingProvider;
-
-import com.google.common.collect.Sets;
 import org.junit.Test;
 
 public class MemcachedCacheLoaderTest {
@@ -76,6 +75,7 @@ public class MemcachedCacheLoaderTest {
           });
 
       Cache<String, Integer> loadingCache = cacheManager.createCache("loadingCache", custom);
+      loadingCache.clear();
 
       assertEquals(Integer.valueOf(1), loadingCache.get("1"));
       assertEquals(Integer.valueOf(2), loadingCache.get("2"));
@@ -145,6 +145,7 @@ public class MemcachedCacheLoaderTest {
           });
 
       Cache<String, Integer> loadingCache = cacheManager.createCache("loadingCache", custom);
+      loadingCache.clear();
 
       loadingCache.put("1", 1);
       loadingCache.put("2", 2);
@@ -154,8 +155,15 @@ public class MemcachedCacheLoaderTest {
 
       loadingCache.loadAll(keys, false, completionListener);
 
+      int tries = 10;
       while (!completed.get()) {
-        Thread.sleep(250);
+        try {
+          Thread.sleep(250);
+        } catch (InterruptedException e) {
+          if (tries-- == 0) {
+            throw e;
+          }
+        }
       }
 
       assertEquals(3, loads.getAndSet(0));
@@ -164,8 +172,15 @@ public class MemcachedCacheLoaderTest {
 
       loadingCache.loadAll(keys, true, completionListener);
 
+      tries = 10;
       while (!completed.get()) {
-        Thread.sleep(250);
+        try {
+          Thread.sleep(250);
+        } catch (InterruptedException e) {
+          if (tries-- == 0) {
+            throw e;
+          }
+        }
       }
 
       assertEquals(6, loads.get());
