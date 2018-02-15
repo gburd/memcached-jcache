@@ -26,10 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
@@ -47,6 +44,8 @@ import javax.cache.processor.EntryProcessorResult;
 import javax.management.MBeanException;
 import javax.management.ObjectName;
 import javax.management.OperationsException;
+
+import com.diffplug.common.base.Errors;
 import net.spy.memcached.AddrUtil;
 import net.spy.memcached.BinaryConnectionFactory;
 import net.spy.memcached.CASResponse;
@@ -55,6 +54,7 @@ import net.spy.memcached.ConnectionObserver;
 import net.spy.memcached.MemcachedClient;
 import net.spy.memcached.internal.OperationFuture;
 import net.spy.memcached.transcoders.Transcoder;
+import org.apache.commons.lang3.StringUtils;
 
 public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
   private static final Logger LOG = Logger.getLogger(MemcachedCache.class.getName());
@@ -116,12 +116,13 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
     transcoder = (Transcoder<V>) client.<V>getTranscoder();
     try {
       String className = property(properties, "serializer", cacheName, "");
-      if (className != null && !className.equals("")) {
+      if (!StringUtils.isBlank(className)) {
         try {
           transcoder =
               Transcoder.class.cast(
                   this.getClass().getClassLoader().loadClass(className).newInstance());
         } catch (ClassNotFoundException e) {
+          LOG.warning(String.format("Unable to load transcoder class name {} for class {}. {}", className, cacheName, e));
           System.out.println(cacheName);
           e.printStackTrace();
           System.out.println(e);
@@ -721,6 +722,16 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
     if (isClosed()) {
       throw new IllegalStateException("This cache is closed!");
     }
+  }
+
+  private static <T> CompletableFuture<T> asCompletableFuture(Future<T> future, long timeout, TimeUnit units) {
+    return CompletableFuture.supplyAsync(Errors.rethrow().wrap(() -> {
+      try {
+        return future.get(timeout, units);
+      } catch (InterruptedException|ExecutionException e) {
+        throw new RuntimeException(e);
+      }
+    }));
   }
 
   private static final class DaemonThreadFactory implements ThreadFactory {
