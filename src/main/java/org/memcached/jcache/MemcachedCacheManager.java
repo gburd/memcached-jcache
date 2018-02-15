@@ -133,7 +133,7 @@ public class MemcachedCacheManager implements javax.cache.CacheManager {
     checkState();
 
     // An "unmodifiable" set will still reference the mutable keySet(), so copy it first.
-    Set<String> keys = new HashSet<String>(caches.keySet().size());
+    Set<String> keys = new HashSet<>(caches.keySet().size());
     keys.addAll(caches.keySet());
     return Collections.unmodifiableSet(keys);
   }

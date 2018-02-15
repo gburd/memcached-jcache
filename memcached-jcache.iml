@@ -14,6 +14,9 @@
     <orderEntry type="library" name="Maven: net.spy:spymemcached:2.12.3" level="project" />
     <orderEntry type="library" name="Maven: javax.transaction:jta:1.1" level="project" />
     <orderEntry type="library" name="Maven: javax.cache:cache-api:1.1.0" level="project" />
+    <orderEntry type="library" name="Maven: com.diffplug.durian:durian:3.4.0" level="project" />
+    <orderEntry type="library" name="Maven: org.aspectj:aspectjweaver:1.8.10" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.commons:commons-lang3:3.6" level="project" />
     <orderEntry type="library" scope="TEST" name="Maven: junit:junit:4.12" level="project" />
     <orderEntry type="library" scope="TEST" name="Maven: org.hamcrest:hamcrest-core:1.3" level="project" />
     <orderEntry type="library" scope="TEST" name="Maven: com.google.guava:guava:22.0" level="project" />
@@ -24,6 +27,6 @@
     <orderEntry type="library" scope="TEST" name="Maven: org.bitstrings.test:junit-clptr:1.2.2" level="project" />
     <orderEntry type="library" scope="TEST" name="Maven: com.thimbleware.jmemcached:jmemcached-core:1.0.0" level="project" />
     <orderEntry type="library" scope="TEST" name="Maven: org.jboss.netty:netty:3.2.3.Final" level="project" />
-    <orderEntry type="library" scope="TEST" name="Maven: org.slf4j:slf4j-api:1.6.4" level="project" />
+    <orderEntry type="library" scope="TEST" name="Maven: org.slf4j:slf4j-api:1.7.25" level="project" />
   </component>
 </module>

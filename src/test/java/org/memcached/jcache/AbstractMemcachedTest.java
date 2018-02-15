@@ -1,6 +1,10 @@
 package org.memcached.jcache;
 
-import com.thimbleware.jmemcached.*;
+import com.thimbleware.jmemcached.Cache;
+import com.thimbleware.jmemcached.CacheImpl;
+import com.thimbleware.jmemcached.Key;
+import com.thimbleware.jmemcached.LocalCacheElement;
+import com.thimbleware.jmemcached.MemCacheDaemon;
 import com.thimbleware.jmemcached.storage.CacheStorage;
 import com.thimbleware.jmemcached.storage.bytebuffer.BlockStorageCacheStorage;
 import com.thimbleware.jmemcached.storage.bytebuffer.ByteBufferBlockStore;
