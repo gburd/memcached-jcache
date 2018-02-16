@@ -66,7 +66,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
   private final Statistics statistics = new Statistics();
   private final MemcachedCacheLoader cacheLoader;
   private final AtomicBoolean closed = new AtomicBoolean();
-  private MemcachedKeyFactory keyFactory = null;
+  private MemcachedKeyCodecFactory keyFactory = null;
   private int expiry;
   private ConnectionFactory connectionFactory;
   private ApplicationContext context;
@@ -121,7 +121,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
 
   public void setApplicationContext(ApplicationContext context) {
     this.context = context;
-    MemcachedKeyFactory keyFactory = (MemcachedKeyFactory) context.getBean("memcachedKeyFactory");
+    MemcachedKeyCodecFactory keyFactory = (MemcachedKeyCodecFactory) context.getBean("memcachedKeyFactory");
   }
 
   private static String property(
@@ -136,12 +136,12 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
   private String qualifiedKeyFor(Object key) {
     if (keyFactory != null) {
       try {
-        keyFactory.format(cacheName, key);
+        keyFactory.encode(cacheName, key);
       } catch (Throwable t) {
         return key.toString();
       }
     } else {
-      if (key.toString().startsWith(cacheName)) {
+      if (!key.toString().startsWith(cacheName)) {
         return String.format("%s.%s", cacheName, key.toString());
       }
     }
@@ -186,9 +186,17 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
       throw new NullPointerException();
     }
 
-    Map<String, V> kvp =
+    Map<Object, V> kvp =
         client.<V>getBulk(
-            keys.stream().<String>map(key -> qualifiedKeyFor(key)).collect(Collectors.toSet()), transcoder);
+            keys.stream().<String>map(key -> qualifiedKeyFor(key)).collect(Collectors.toSet()), transcoder)
+            .entrySet().parallelStream()
+                .collect(Collectors.toMap(entry -> {
+                    if (keyFactory == null) {
+                        return entry.getKey().substring(cacheName.length() + 1);
+                    } else {
+                        return keyFactory.decode(entry.getKey());
+                    }
+                }, Map.Entry::getValue));
 
     if (configuration.isReadThrough() && cacheLoader != null) {
       Map<String, V> lkvp =
@@ -196,7 +204,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
               keys.stream().filter(key -> !kvp.containsKey(key)).collect(Collectors.toSet()));
       lkvp.entrySet()
           .parallelStream()
-          .forEach(entry -> client.set(entry.getKey(), expiry, entry.getValue(), transcoder));
+          .forEach(entry -> client.set(qualifiedKeyFor(entry.getKey()), expiry, entry.getValue(), transcoder));
       kvp.putAll(lkvp);
     }
 
@@ -306,7 +314,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
         .map(
             entry ->
                 asCompletableFuture(
-                    client.set(entry.getKey().toString(), expiry, entry.getValue())))
+                    client.set(qualifiedKeyFor(entry.getKey()), expiry, entry.getValue())))
         .forEach(cf -> cf.thenAccept(v -> {}));
   }
 

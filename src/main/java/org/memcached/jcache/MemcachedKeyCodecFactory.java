@@ -15,6 +15,7 @@
  */
 package org.memcached.jcache;
 
-public interface MemcachedKeyFactory {
-  String format(String cacheName, Object key);
+public interface MemcachedKeyCodecFactory {
+  String encode(String cacheName, Object key);
+  Object decode(String qualifiedKey);
 }
