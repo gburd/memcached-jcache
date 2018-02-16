@@ -629,6 +629,10 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
     throw new UnsupportedOperationException();
   }
 
+  public MemcachedClient getMemcachedClient() {
+      return client;
+  }
+
   private Transcoder<V> getTranscoder(ConnectionFactory connectionFactory) {
     Transcoder<V> transcoder = (Transcoder<V>) connectionFactory.getDefaultTranscoder();
     try {
