@@ -121,7 +121,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
 
   public void setApplicationContext(ApplicationContext context) {
     this.context = context;
-    MemcachedKeyCodecFactory keyFactory = (MemcachedKeyCodecFactory) context.getBean("memcachedKeyFactory");
+    MemcachedKeyCodecFactory keyFactory = (MemcachedKeyCodecFactory) context.getBean("memcachedKeyCodecFactory");
   }
 
   private static String property(
@@ -194,7 +194,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
                     if (keyFactory == null) {
                         return entry.getKey().substring(cacheName.length() + 1);
                     } else {
-                        return keyFactory.decode(entry.getKey());
+                        return keyFactory.decode(cacheName, entry.getKey());
                     }
                 }, Map.Entry::getValue));
 
