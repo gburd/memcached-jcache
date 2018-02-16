@@ -20,7 +20,6 @@ import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
@@ -108,20 +107,16 @@ public final class MemcachedCachingProvider implements javax.cache.spi.CachingPr
 
   @Override
   public void close() {
-    Iterator<Map.Entry<Pair<URI, ClassLoader>, CacheManager>> i =
-        cacheManagers.entrySet().iterator();
-
-    while (i.hasNext()) {
-      Map.Entry<Pair<URI, ClassLoader>, CacheManager> entry = i.next();
-
-      CacheManager cm = entry.getValue();
-
-      if (cm != null && !cm.isClosed()) {
-        cm.close();
-      }
-
-      i.remove();
-    }
+    cacheManagers
+        .entrySet()
+        .parallelStream()
+        .<Map.Entry<Pair<URI, ClassLoader>, CacheManager>>forEach(
+            entry -> {
+              CacheManager cm = entry.getValue();
+              if (cm != null && !cm.isClosed()) {
+                cm.close();
+              }
+            });
   }
 
   @Override
