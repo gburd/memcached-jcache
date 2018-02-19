@@ -33,9 +33,10 @@ import net.spy.memcached.ConnectionFactory;
 import net.spy.memcached.ConnectionFactoryBuilder;
 
 public final class MemcachedCachingProvider implements javax.cache.spi.CachingProvider {
+  private static ConnectionFactoryBuilder connectionFactoryBuilder;
+
   private static final URI defaultUri;
   private static final Properties defaultProperties;
-  private ConnectionFactoryBuilder connectionFactoryBuilder;
 
   static {
     URI uri = null;
@@ -66,7 +67,7 @@ public final class MemcachedCachingProvider implements javax.cache.spi.CachingPr
 
   public MemcachedCachingProvider() {}
 
-  public void setConnectionFactoryBuilder(ConnectionFactoryBuilder builder) {
+  public static void setConnectionFactoryBuilder(ConnectionFactoryBuilder builder) {
     connectionFactoryBuilder = builder;
   }
 
