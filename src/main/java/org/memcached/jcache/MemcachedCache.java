@@ -62,13 +62,12 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
 
   private final String cacheName;
   private final CompleteConfiguration<K, V> configuration;
-  private final CacheManager cacheManager;
+  private final MemcachedCacheManager cacheManager;
   private final Statistics statistics = new Statistics();
   private final MemcachedCacheLoader cacheLoader;
   private final AtomicBoolean closed = new AtomicBoolean();
   private MemcachedKeyCodec keyCodec = null;
   private int expiry;
-  private ConnectionFactory connectionFactory;
   private Transcoder<V> transcoder;
   private MemcachedClient client;
   private ExecutorService executorService;
@@ -77,7 +76,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
       String cacheName, CompleteConfiguration<K, V> configuration, CacheManager cacheManager) {
     this.cacheName = cacheName;
     this.configuration = configuration;
-    this.cacheManager = cacheManager;
+    this.cacheManager = (MemcachedCacheManager) cacheManager;
 
     Properties properties = cacheManager.getProperties();
 
@@ -710,24 +709,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
   }
 
   private ConnectionFactory getConnectionFactory() {
-    ConnectionFactory connectionFactory = this.connectionFactory;
-    if (connectionFactory == null) {
-      Properties properties = cacheManager.getProperties();
-      String connectionFactoryClassName =
-          properties.getProperty(
-              "ConnectionFactory", BinaryConnectionFactory.class.getCanonicalName());
-      try {
-        Class<?> c = Class.forName(connectionFactoryClassName);
-        Constructor<?> cons = c.getConstructor();
-        connectionFactory = (ConnectionFactory) cons.<ConnectionFactory>newInstance();
-      } catch (IllegalAccessException
-          | InstantiationException
-          | InvocationTargetException
-          | NoSuchMethodException
-          | ClassNotFoundException e) {
-        e.printStackTrace();
-      }
-    }
+    ConnectionFactory connectionFactory = cacheManager.getConnectionFactory();
     if (connectionFactory == null) {
       connectionFactory = new BinaryConnectionFactory();
     }
@@ -740,7 +722,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
           if (closed.get()) {
             return null;
           }
-          this.connectionFactory = getConnectionFactory();
+          ConnectionFactory connectionFactory = getConnectionFactory();
           this.transcoder = getTranscoder(connectionFactory);
           if (executorService != null && !executorService.isShutdown()) {
             executorService.shutdownNow();
