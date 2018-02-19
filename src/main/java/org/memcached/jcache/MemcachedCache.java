@@ -18,6 +18,8 @@ package org.memcached.jcache;
 import com.diffplug.common.base.Errors;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.HashMap;
@@ -54,10 +56,8 @@ import net.spy.memcached.MemcachedClient;
 import net.spy.memcached.internal.OperationFuture;
 import net.spy.memcached.transcoders.Transcoder;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.context.ApplicationContext;
-import org.springframework.context.ApplicationContextAware;
 
-public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, ApplicationContextAware {
+public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
   private static final Logger LOG = Logger.getLogger(MemcachedCache.class.getName());
 
   private final String cacheName;
@@ -66,10 +66,9 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
   private final Statistics statistics = new Statistics();
   private final MemcachedCacheLoader cacheLoader;
   private final AtomicBoolean closed = new AtomicBoolean();
-  private MemcachedKeyCodecFactory keyFactory = null;
+  private MemcachedKeyCodec keyCodec = null;
   private int expiry;
   private ConnectionFactory connectionFactory;
-  private ApplicationContext context;
   private Transcoder<V> transcoder;
   private MemcachedClient client;
   private ExecutorService executorService;
@@ -119,11 +118,6 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
     closed.set(false);
   }
 
-  public void setApplicationContext(ApplicationContext context) {
-    this.context = context;
-    MemcachedKeyCodecFactory keyFactory = (MemcachedKeyCodecFactory) context.getBean("memcachedKeyCodecFactory");
-  }
-
   private static String property(
       final Properties properties,
       final String cacheName,
@@ -133,10 +127,34 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
         cacheName + "." + name, properties.getProperty(name, defaultValue));
   }
 
-  private String qualifiedKeyFor(Object key) {
-    if (keyFactory != null) {
+  private MemcachedKeyCodec getKeyCodec() {
+    if (keyCodec == null) {
+      Properties properties = cacheManager.getProperties();
+      String keyCodecClassName =
+          properties.getProperty("KeyCodec", DefaultKeyCodec.class.getCanonicalName());
       try {
-        keyFactory.encode(cacheName, key);
+        Class<?> c = Class.forName(keyCodecClassName);
+        Constructor<?> cons = c.getConstructor();
+        keyCodec = (MemcachedKeyCodec) cons.<MemcachedKeyCodec>newInstance();
+      } catch (IllegalAccessException
+          | InstantiationException
+          | InvocationTargetException
+          | NoSuchMethodException
+          | ClassNotFoundException e) {
+        e.printStackTrace();
+      }
+    }
+    if (keyCodec == null) {
+      keyCodec = new DefaultKeyCodec();
+    }
+    return keyCodec;
+  }
+
+  private String encodedKeyFor(Object key) {
+    MemcachedKeyCodec keyCodec = getKeyCodec();
+    if (keyCodec != null) {
+      try {
+        return keyCodec.encode(cacheName, key);
       } catch (Throwable t) {
         return key.toString();
       }
@@ -146,6 +164,13 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
       }
     }
     return key.toString();
+  }
+
+  private Object decodeKeyFor(String key) {
+    MemcachedKeyCodec keyCodec = getKeyCodec();
+    return (keyCodec != null)
+        ? keyCodec.decode(cacheName, key)
+        : key.substring(cacheName.length() + 1);
   }
 
   @Override
@@ -158,7 +183,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
       throw new NullPointerException();
     }
 
-    V value = client.<V>get(qualifiedKeyFor(key), transcoder);
+    V value = client.<V>get(encodedKeyFor(key), transcoder);
     if (statisticsEnabled) {
       if (value != null) {
         statistics.increaseHits(1);
@@ -169,7 +194,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
 
     if (value == null && cacheLoader != null && configuration.isReadThrough()) {
       value = (V) cacheLoader.load(key);
-      client.set(qualifiedKeyFor(key), expiry, value, transcoder);
+      client.set(encodedKeyFor(key), expiry, value, transcoder);
     }
 
     if (statisticsEnabled) {
@@ -181,22 +206,20 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
   @Override
   public Map<K, V> getAll(Set<? extends K> keys) {
     MemcachedClient client = checkState();
+    MemcachedKeyCodec keyCodec = getKeyCodec();
 
     if (keys == null || keys.contains(null)) {
       throw new NullPointerException();
     }
 
     Map<Object, V> kvp =
-        client.<V>getBulk(
-            keys.stream().<String>map(key -> qualifiedKeyFor(key)).collect(Collectors.toSet()), transcoder)
-            .entrySet().parallelStream()
-                .collect(Collectors.toMap(entry -> {
-                    if (keyFactory == null) {
-                        return entry.getKey().substring(cacheName.length() + 1);
-                    } else {
-                        return keyFactory.decode(cacheName, entry.getKey());
-                    }
-                }, Map.Entry::getValue));
+        client
+            .<V>getBulk(
+                keys.stream().<String>map(key -> encodedKeyFor(key)).collect(Collectors.toSet()),
+                transcoder)
+            .entrySet()
+            .parallelStream()
+            .collect(Collectors.toMap(entry -> decodeKeyFor(entry.getKey()), Map.Entry::getValue));
 
     if (configuration.isReadThrough() && cacheLoader != null) {
       Map<String, V> lkvp =
@@ -204,7 +227,9 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
               keys.stream().filter(key -> !kvp.containsKey(key)).collect(Collectors.toSet()));
       lkvp.entrySet()
           .parallelStream()
-          .forEach(entry -> client.set(qualifiedKeyFor(entry.getKey()), expiry, entry.getValue(), transcoder));
+          .forEach(
+              entry ->
+                  client.set(encodedKeyFor(entry.getKey()), expiry, entry.getValue(), transcoder));
       kvp.putAll(lkvp);
     }
 
@@ -219,7 +244,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
       throw new NullPointerException();
     }
 
-    V value = client.<V>get(qualifiedKeyFor(key), transcoder);
+    V value = client.<V>get(encodedKeyFor(key), transcoder);
 
     return value != null;
   }
@@ -239,10 +264,10 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
         .forEach(
             key -> {
               try {
-                Object value = client.get(qualifiedKeyFor(key));
+                Object value = client.get(encodedKeyFor(key));
                 if (value == null || replaceExistingValues) {
                   V loadedValue = (V) cacheLoader.load(key);
-                  client.add(qualifiedKeyFor(key), expiry, loadedValue, transcoder);
+                  client.add(encodedKeyFor(key), expiry, loadedValue, transcoder);
                 }
               } catch (Exception e) {
                 cl.onException(e);
@@ -262,7 +287,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
       throw new NullPointerException();
     }
 
-    OperationFuture<Boolean> of = client.set(qualifiedKeyFor(key), expiry, value);
+    OperationFuture<Boolean> of = client.set(encodedKeyFor(key), expiry, value);
     try {
       of.get();
       if (statisticsEnabled) {
@@ -283,15 +308,15 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
       throw new NullPointerException();
     }
 
-    V previousValue = client.<V>get(qualifiedKeyFor(key), transcoder);
+    V previousValue = client.<V>get(encodedKeyFor(key), transcoder);
     if (previousValue == null && cacheLoader != null && configuration.isReadThrough()) {
       previousValue = (V) cacheLoader.load(key);
       // NOTE: skip setting the value here, we're about to change it
-      // client.set(qualifiedKeyFor(key), expiry, previousValue, transcoder);
+      // client.set(encodedKeyFor(key), expiry, previousValue, transcoder);
     }
 
     final Timer timer = Timer.start(!statisticsEnabled);
-    client.set(qualifiedKeyFor(key), expiry, value, transcoder);
+    client.set(encodedKeyFor(key), expiry, value, transcoder);
 
     if (statisticsEnabled) {
       timer.stop();
@@ -314,7 +339,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
         .map(
             entry ->
                 asCompletableFuture(
-                    client.set(qualifiedKeyFor(entry.getKey()), expiry, entry.getValue())))
+                    client.set(encodedKeyFor(entry.getKey()), expiry, entry.getValue())))
         .forEach(cf -> cf.thenAccept(v -> {}));
   }
 
@@ -330,7 +355,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
 
     boolean applied;
     try {
-      applied = client.add(qualifiedKeyFor(key), expiry, value, transcoder).get();
+      applied = client.add(encodedKeyFor(key), expiry, value, transcoder).get();
     } catch (ExecutionException | InterruptedException e) {
       applied = false;
     }
@@ -354,7 +379,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
 
     boolean applied = false;
     try {
-      applied = this.<Boolean>asCompletableFuture(client.delete(qualifiedKeyFor(key))).get();
+      applied = this.<Boolean>asCompletableFuture(client.delete(encodedKeyFor(key))).get();
       if (statisticsEnabled) {
         statistics.increaseRemovals(1);
         statistics.addRemoveTime(timer.elapsed());
@@ -377,10 +402,10 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
     }
 
     boolean applied = false;
-    CASValue<V> casv = client.gets(qualifiedKeyFor(key), transcoder);
+    CASValue<V> casv = client.gets(encodedKeyFor(key), transcoder);
     if (casv != null && oldValue.equals(casv.getValue())) {
       try {
-        applied = client.delete(qualifiedKeyFor(key), casv.getCas()).get();
+        applied = client.delete(encodedKeyFor(key), casv.getCas()).get();
       } catch (ExecutionException | InterruptedException e) {
         applied = false;
       }
@@ -402,13 +427,13 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
       throw new NullPointerException();
     }
 
-    CASValue<V> casv = client.gets(qualifiedKeyFor(key), transcoder);
+    CASValue<V> casv = client.gets(encodedKeyFor(key), transcoder);
 
     final Timer timer = Timer.start(!statisticsEnabled);
     V value = null;
     if (casv != null) {
 
-      if (asCompletableFuture(client.delete(qualifiedKeyFor(key), casv.getCas()))
+      if (asCompletableFuture(client.delete(encodedKeyFor(key), casv.getCas()))
           .exceptionally(
               ex -> {
                 LOG.info(
@@ -438,12 +463,13 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
     }
 
     boolean applied = false;
-    CASValue<V> casv = client.gets(qualifiedKeyFor(key), transcoder);
+    CASValue<V> casv = client.gets(encodedKeyFor(key), transcoder);
 
     final Timer timer = Timer.start(!statisticsEnabled);
     if (casv != null && oldValue.equals(casv.getValue())) {
       timer.reset();
-      CASResponse casr = client.cas(qualifiedKeyFor(key), casv.getCas(), expiry, newValue, transcoder);
+      CASResponse casr =
+          client.cas(encodedKeyFor(key), casv.getCas(), expiry, newValue, transcoder);
       applied = (casr == CASResponse.OK);
       if (!applied) {
         LOG.info(
@@ -470,7 +496,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
 
     boolean applied = false;
     try {
-      applied = client.replace(qualifiedKeyFor(key), expiry, value, transcoder).get();
+      applied = client.replace(encodedKeyFor(key), expiry, value, transcoder).get();
     } catch (ExecutionException | InterruptedException e) {
       applied = false;
     }
@@ -492,11 +518,13 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
     }
 
     boolean applied = false;
-    CASValue<V> casv = client.gets(qualifiedKeyFor(key), transcoder);
+    CASValue<V> casv = client.gets(encodedKeyFor(key), transcoder);
 
     final Timer timer = Timer.start(!statisticsEnabled);
     if (casv != null && casv.getValue() != null) {
-      applied = client.cas(qualifiedKeyFor(key), casv.getCas(), expiry, value, transcoder) == CASResponse.OK;
+      applied =
+          client.cas(encodedKeyFor(key), casv.getCas(), expiry, value, transcoder)
+              == CASResponse.OK;
     }
     if (applied) {
       if (statisticsEnabled) {
@@ -516,7 +544,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
       throw new NullPointerException();
     }
 
-    keys.parallelStream().forEach(key -> client.delete(qualifiedKeyFor(key)));
+    keys.parallelStream().forEach(key -> client.delete(encodedKeyFor(key)));
   }
 
   @Override
@@ -684,12 +712,24 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V>, Applicatio
   private ConnectionFactory getConnectionFactory() {
     ConnectionFactory connectionFactory = this.connectionFactory;
     if (connectionFactory == null) {
-      if (context != null) {
-        connectionFactory = (ConnectionFactory) context.getBean("memcachedConnectionFactory");
+      Properties properties = cacheManager.getProperties();
+      String connectionFactoryClassName =
+          properties.getProperty(
+              "ConnectionFactory", BinaryConnectionFactory.class.getCanonicalName());
+      try {
+        Class<?> c = Class.forName(connectionFactoryClassName);
+        Constructor<?> cons = c.getConstructor();
+        connectionFactory = (ConnectionFactory) cons.<ConnectionFactory>newInstance();
+      } catch (IllegalAccessException
+          | InstantiationException
+          | InvocationTargetException
+          | NoSuchMethodException
+          | ClassNotFoundException e) {
+        e.printStackTrace();
       }
-      if (connectionFactory == null) {
-        connectionFactory = new BinaryConnectionFactory();
-      }
+    }
+    if (connectionFactory == null) {
+      connectionFactory = new BinaryConnectionFactory();
     }
     return connectionFactory;
   }

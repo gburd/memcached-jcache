@@ -83,11 +83,6 @@
             <version>1.8.10</version>
         </dependency>
         <dependency>
-            <groupId>org.springframework</groupId>
-            <artifactId>spring-web</artifactId>
-            <version>4.3.14.RELEASE</version>
-        </dependency>
-        <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
             <version>3.6</version>
@@ -109,18 +104,6 @@
             <groupId>org.bitstrings.test</groupId>
             <artifactId>junit-clptr</artifactId>
             <version>1.2.2</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.thimbleware.jmemcached</groupId>
-            <artifactId>jmemcached-core</artifactId>
-            <version>1.0.0</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-            <version>1.7.25</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

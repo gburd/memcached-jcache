@@ -38,9 +38,8 @@ import javax.cache.spi.CachingProvider;
 import org.junit.Test;
 
 public class MemcachedCacheEventTest {
-    @Test public void skip() {}
 
-  // TODO(gburd): @Test(timeout = 5000L)
+  @Test(timeout = 5000L)
   public void testCacheEntryListener() throws InterruptedException {
     final MyCacheEntryListener myCacheEntryListener = new MyCacheEntryListener();
     final MyCacheEntryEventFilter myCacheEntryEventFilter = new MyCacheEntryEventFilter();
