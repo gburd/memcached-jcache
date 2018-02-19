@@ -31,23 +31,21 @@ import javax.cache.expiry.EternalExpiryPolicy;
 import javax.cache.expiry.ExpiryPolicy;
 import javax.cache.expiry.ModifiedExpiryPolicy;
 import javax.cache.expiry.TouchedExpiryPolicy;
-import javax.cache.spi.CachingProvider;
-import net.spy.memcached.BinaryConnectionFactory;
-import net.spy.memcached.ConnectionFactory;
-import net.spy.memcached.ConnectionFactoryBuilder;
 
 public class MemcachedCacheManager implements javax.cache.CacheManager {
   private final URI uri;
   private final ClassLoader classLoader;
   private final Properties properties;
-  private final CachingProvider cachingProvider;
+  private final MemcachedCachingProvider cachingProvider;
   private final ConcurrentMap<String, Cache<?, ?>> caches = new ConcurrentHashMap<>();
   private final AtomicBoolean closed = new AtomicBoolean();
   private final Object lock = new Object();
-  private ConnectionFactoryBuilder connectionFactoryBuilder;
 
   public MemcachedCacheManager(
-      URI uri, ClassLoader classLoader, Properties properties, CachingProvider cachingProvider) {
+      URI uri,
+      ClassLoader classLoader,
+      Properties properties,
+      MemcachedCachingProvider cachingProvider) {
     this.uri = uri;
     this.classLoader = classLoader;
     this.properties = properties;
@@ -55,7 +53,7 @@ public class MemcachedCacheManager implements javax.cache.CacheManager {
   }
 
   @Override
-  public CachingProvider getCachingProvider() {
+  public MemcachedCachingProvider getCachingProvider() {
     return cachingProvider;
   }
 
@@ -152,18 +150,6 @@ public class MemcachedCacheManager implements javax.cache.CacheManager {
     if (cache != null) {
       cache.clear();
       cache.close();
-    }
-  }
-
-  public void setConnectionFactoryBuilder(ConnectionFactoryBuilder builder) {
-    connectionFactoryBuilder = builder;
-  }
-
-  public ConnectionFactory getConnectionFactory() {
-    if (connectionFactoryBuilder != null) {
-      return connectionFactoryBuilder.build();
-    } else {
-      return new BinaryConnectionFactory();
     }
   }
 

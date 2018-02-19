@@ -709,7 +709,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
   }
 
   private ConnectionFactory getConnectionFactory() {
-    ConnectionFactory connectionFactory = cacheManager.getConnectionFactory();
+    ConnectionFactory connectionFactory = cacheManager.getCachingProvider().getConnectionFactory();
     if (connectionFactory == null) {
       connectionFactory = new BinaryConnectionFactory();
     }

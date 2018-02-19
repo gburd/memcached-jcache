@@ -28,10 +28,14 @@ import java.util.concurrent.ConcurrentMap;
 import javax.cache.CacheException;
 import javax.cache.CacheManager;
 import javax.cache.configuration.OptionalFeature;
+import net.spy.memcached.BinaryConnectionFactory;
+import net.spy.memcached.ConnectionFactory;
+import net.spy.memcached.ConnectionFactoryBuilder;
 
 public final class MemcachedCachingProvider implements javax.cache.spi.CachingProvider {
   private static final URI defaultUri;
   private static final Properties defaultProperties;
+  private ConnectionFactoryBuilder connectionFactoryBuilder;
 
   static {
     URI uri = null;
@@ -61,6 +65,18 @@ public final class MemcachedCachingProvider implements javax.cache.spi.CachingPr
       new ConcurrentHashMap<>();
 
   public MemcachedCachingProvider() {}
+
+  public void setConnectionFactoryBuilder(ConnectionFactoryBuilder builder) {
+    connectionFactoryBuilder = builder;
+  }
+
+  public ConnectionFactory getConnectionFactory() {
+    if (connectionFactoryBuilder != null) {
+      return connectionFactoryBuilder.build();
+    } else {
+      return new BinaryConnectionFactory();
+    }
+  }
 
   @Override
   public CacheManager getCacheManager(URI uri, ClassLoader classLoader, Properties properties) {
@@ -135,7 +151,7 @@ public final class MemcachedCachingProvider implements javax.cache.spi.CachingPr
 
   @Override
   public boolean isSupported(OptionalFeature optionalFeature) {
-    return optionalFeature.equals(OptionalFeature.STORE_BY_REFERENCE);
+    return false;
   }
 
   protected void close(CacheManager cacheManager) {
