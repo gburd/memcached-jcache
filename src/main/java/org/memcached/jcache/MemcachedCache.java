@@ -113,12 +113,14 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
       }
     }
 
-    // The 'closed' state is logical, meaning "we're not going to re-open or use it",
-    // while the 'client' may still be open and connected to MemcacheD.
+    // The 'closed' state is logical, meaning "we're not going to re-open or use the client
+    // connection to MemcacheD.  This is different from the client being null or the client
+    // not able to connect to MemcacheD, in those cases we will keep trying to reconnect in
+    // hopes that the failure is transient.
     closed.set(false);
   }
 
-  private static String property(
+  private String property(
       final Properties properties,
       final String cacheName,
       final String name,
@@ -152,18 +154,19 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
 
   private String encodedKeyFor(Object key) {
     MemcachedKeyCodec keyCodec = getKeyCodec();
+    String keyString = key.toString();
     if (keyCodec != null) {
       try {
         return keyCodec.encode(cacheName, key);
       } catch (Throwable t) {
-        return key.toString();
+        return keyString;
       }
     } else {
-      if (!key.toString().startsWith(cacheName)) {
-        return String.format("%s.%s", cacheName, key.toString());
+      if (!keyString.startsWith(cacheName)) {
+        return String.format("%s.%s", cacheName, keyString);
       }
     }
-    return key.toString();
+    return keyString;
   }
 
   private Object decodeKeyFor(String key) {
