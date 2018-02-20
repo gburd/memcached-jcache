@@ -66,6 +66,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
   private final Statistics statistics = new Statistics();
   private final MemcachedCacheLoader cacheLoader;
   private final AtomicBoolean closed = new AtomicBoolean();
+  private int serversHashCode = 0;
   private MemcachedKeyCodec keyCodec = null;
   private int expiry;
   private Transcoder<V> transcoder;
@@ -768,19 +769,29 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
         });
   }
 
-  private MemcachedClient checkState() {
+  private synchronized MemcachedClient checkState() {
     if (isClosed()) {
       throw new IllegalStateException("This cache is closed!");
     }
+
+    // If the set of servers has changed, close and reconnect our client.
+    String servers = cacheManager.getProperties().getProperty("servers");
+    int hashCode = servers == null ? 0 : servers.hashCode();
+    if (hashCode != serversHashCode) {
+        serversHashCode = cacheManager.getProperties().getProperty("servers").hashCode();
+        if (client != null) {
+            client.shutdown();
+            client = null;
+        }
+    }
+
+    // If the client is null or shut down, attempt to reconnect.
     if (client == null || client.getConnection().isShutDown()) {
       try {
-        synchronized (this) {
-          client = getClient(cacheManager.getProperties()).get();
-        }
-      } catch (InterruptedException e) {
-        e.printStackTrace();
-      } catch (ExecutionException e) {
-        e.printStackTrace();
+        client = getClient(cacheManager.getProperties()).get();
+      } catch (ExecutionException | InterruptedException e) {
+        LOG.warning("Unable to connect to MemcacheD servers provided.");
+        client = null;
       }
     }
     return client;
