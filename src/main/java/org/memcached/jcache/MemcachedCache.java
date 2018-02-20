@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 Onshape, Inc..
+ * Copyright 2018 Onshape, Inc..
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -71,7 +71,6 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
   private int expiry;
   private Transcoder<V> transcoder;
   private MemcachedClient client;
-  private ExecutorService executorService;
 
   public MemcachedCache(
       String cacheName, CompleteConfiguration<K, V> configuration, CacheManager cacheManager) {
@@ -159,6 +158,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
       try {
         return keyCodec.encode(cacheName, key);
       } catch (Throwable t) {
+        LOG.warning("Custom key encoder failed. " + t.getStackTrace());
         return keyString;
       }
     } else {
@@ -410,6 +410,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
       try {
         applied = client.delete(encodedKeyFor(key), casv.getCas()).get();
       } catch (ExecutionException | InterruptedException e) {
+        LOG.warning("Attempted cas operation for delete in MemcacheD failed. " + e.getStackTrace());
         applied = false;
       }
     }
@@ -699,14 +700,12 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
         } catch (ClassNotFoundException e) {
           LOG.warning(
               String.format(
-                  "Unable to load transcoder class name {} for class {}. {}",
-                  className,
-                  cacheName,
-                  e));
+                  "Unable to load transcoder class name %s for class %s. %s",
+                  className, cacheName, e));
           throw e;
         }
       }
-    } catch (final Exception e) {
+    } catch (ClassNotFoundException | IllegalAccessException | InstantiationException e) {
       throw new IllegalArgumentException(e);
     }
     return transcoder;
@@ -720,56 +719,41 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
     return connectionFactory;
   }
 
-  private CompletableFuture<MemcachedClient> getClient(Properties properties) {
-    return CompletableFuture.supplyAsync(
-        () -> {
-          if (closed.get()) {
-            return null;
-          }
-          ConnectionFactory connectionFactory = getConnectionFactory();
-          this.transcoder = getTranscoder(connectionFactory);
-          if (executorService != null && !executorService.isShutdown()) {
-            executorService.shutdownNow();
-          }
+  private MemcachedClient getClient(Properties properties) {
+    if (closed.get()) {
+      return null;
+    }
+    ConnectionFactory connectionFactory = getConnectionFactory();
+    this.transcoder = getTranscoder(connectionFactory);
 
-          final int poolSize = Integer.parseInt(property(properties, cacheName, "pool.size", "3"));
-          final DaemonThreadFactory threadFactory =
-              new DaemonThreadFactory("MemcacheD-JCache-" + cacheName + "-");
-          executorService =
-              poolSize > 0
-                  ? Executors.newFixedThreadPool(poolSize, threadFactory)
-                  : Executors.newCachedThreadPool(threadFactory);
-          String servers = properties.getProperty("servers", "127.0.0.1:11211");
-          if (servers == null) {
-            throw new IllegalArgumentException("servers is null");
-          }
-          List<InetSocketAddress> addresses = AddrUtil.getAddresses(servers);
-          if (addresses == null || addresses.size() < 1) {
-            LOG.warning(
-                "Invalid or missing server addresses in properties, defaulting to 127.0.0.1:11211");
-            addresses = AddrUtil.getAddresses("127.0.0.1:11211");
-          }
-          try {
-            client = new MemcachedClient(connectionFactory, addresses);
-            client.addObserver(
-                new ConnectionObserver() {
-                  @Override
-                  public void connectionEstablished(SocketAddress socketAddress, int i) {
-                    LOG.info("Connection to MemcacheD connected for cache: " + cacheName);
-                    //              closed.set(false);
-                  }
+    String servers = properties.getProperty("servers", "127.0.0.1:11211");
+    if (servers == null) {
+      throw new IllegalArgumentException("servers is null");
+    }
+    List<InetSocketAddress> addresses = AddrUtil.getAddresses(servers);
+    if (addresses == null || addresses.size() < 1) {
+      LOG.warning(
+          "Invalid or missing server addresses in properties, defaulting to 127.0.0.1:11211");
+      addresses = AddrUtil.getAddresses("127.0.0.1:11211");
+    }
+    try {
+      client = new MemcachedClient(connectionFactory, addresses);
+      client.addObserver(
+          new ConnectionObserver() {
+            @Override
+            public void connectionEstablished(SocketAddress socketAddress, int i) {
+              LOG.info("Connection to MemcacheD connected for cache: " + cacheName);
+            }
 
-                  @Override
-                  public void connectionLost(SocketAddress socketAddress) {
-                    LOG.info("Connection to MemcacheD disconnected for cache: " + cacheName);
-                    //              closed.set(true);
-                  }
-                });
-          } catch (IOException e) {
-            throw new RuntimeException(e);
-          }
-          return client;
-        });
+            @Override
+            public void connectionLost(SocketAddress socketAddress) {
+              LOG.info("Connection to MemcacheD disconnected for cache: " + cacheName);
+            }
+          });
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+    return client;
   }
 
   private synchronized MemcachedClient checkState() {
@@ -778,24 +762,19 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
     }
 
     // If the set of servers has changed, close and reconnect our client.
-    String servers = cacheManager.getProperties().getProperty("servers");
+    String servers = cacheManager.getProperties().getProperty("servers", "127.0.0.1:11211");
     int hashCode = servers == null ? 0 : servers.hashCode();
     if (hashCode != serversHashCode) {
-        serversHashCode = cacheManager.getProperties().getProperty("servers").hashCode();
-        if (client != null) {
-            client.shutdown();
-            client = null;
-        }
+      serversHashCode = servers.hashCode();
+      if (client != null) {
+        client.shutdown();
+        client = null;
+      }
     }
 
     // If the client is null or shut down, attempt to reconnect.
     if (client == null || client.getConnection().isShutDown()) {
-      try {
-        client = getClient(cacheManager.getProperties()).get();
-      } catch (ExecutionException | InterruptedException e) {
-        LOG.warning("Unable to connect to MemcacheD servers provided.");
-        client = null;
-      }
+      client = getClient(cacheManager.getProperties());
     }
     return client;
   }
@@ -816,49 +795,6 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
                     throw new RuntimeException(e);
                   }
                 }));
-  }
-
-  private static final class DaemonThreadFactory implements ThreadFactory {
-    private String prefix;
-    private boolean threadIsDaemon = true;
-    private int threadPriority = Thread.NORM_PRIORITY;
-
-    /**
-     * Constructor
-     *
-     * @param prefix thread name prefix
-     */
-    public DaemonThreadFactory(String prefix) {
-      this(prefix, Thread.NORM_PRIORITY);
-    }
-
-    /**
-     * Constructor
-     *
-     * @param prefix thread name prefix
-     * @param threadPriority set thread priority
-     */
-    public DaemonThreadFactory(String prefix, int threadPriority) {
-      this.prefix = prefix;
-      this.threadPriority = threadPriority;
-    }
-
-    /**
-     * Sets the thread to daemon.
-     *
-     * <p>
-     *
-     * @param runner
-     * @return a daemon thread
-     */
-    public Thread newThread(Runnable runner) {
-      Thread t = new Thread(runner);
-      String oldName = t.getName();
-      t.setName(prefix + oldName);
-      t.setDaemon(threadIsDaemon);
-      t.setPriority(threadPriority);
-      return t;
-    }
   }
 
   private static final class Timer {

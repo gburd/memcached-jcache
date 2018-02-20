@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 Onshape, Inc..
+ * Copyright 2018 Onshape, Inc..
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,5 +17,6 @@ package org.memcached.jcache;
 
 public interface MemcachedKeyCodec {
   String encode(String cacheName, Object key);
+
   Object decode(String cacheName, String key);
 }
