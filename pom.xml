@@ -73,6 +73,22 @@
             <version>1.1.0</version>
         </dependency>
         <dependency>
+            <groupId>com.diffplug.durian</groupId>
+            <artifactId>durian</artifactId>
+            <version>3.4.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.aspectj</groupId>
+            <artifactId>aspectjweaver</artifactId>
+            <version>1.8.10</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.6</version>
+        </dependency>
+
+        <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
             <version>4.12</version>
@@ -88,18 +104,6 @@
             <groupId>org.bitstrings.test</groupId>
             <artifactId>junit-clptr</artifactId>
             <version>1.2.2</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.thimbleware.jmemcached</groupId>
-            <artifactId>jmemcached-core</artifactId>
-            <version>1.0.0</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-            <version>1.6.4</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

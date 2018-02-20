@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 Onshape, Inc..
+ * Copyright 2018 Onshape, Inc..
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -75,7 +75,6 @@ public class MemcachedCacheLoaderTest {
           });
 
       Cache<String, Integer> loadingCache = cacheManager.createCache("loadingCache", custom);
-      loadingCache.clear();
 
       assertEquals(Integer.valueOf(1), loadingCache.get("1"));
       assertEquals(Integer.valueOf(2), loadingCache.get("2"));
@@ -145,7 +144,6 @@ public class MemcachedCacheLoaderTest {
           });
 
       Cache<String, Integer> loadingCache = cacheManager.createCache("loadingCache", custom);
-      loadingCache.clear();
 
       loadingCache.put("1", 1);
       loadingCache.put("2", 2);

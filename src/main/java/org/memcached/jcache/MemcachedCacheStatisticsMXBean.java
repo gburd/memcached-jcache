@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 Onshape, Inc..
+ * Copyright 2018 Onshape, Inc..
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,7 +39,7 @@ public class MemcachedCacheStatisticsMXBean
   public float getCacheHitPercentage() {
     final long hits = getCacheHits();
     if (hits == 0) {
-      return 1;
+      return 1F;
     }
     return (float) hits / getCacheGets() * 100.0f;
   }

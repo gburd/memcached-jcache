@@ -15,18 +15,8 @@
  */
 package org.memcached.jcache;
 
-import javax.cache.processor.EntryProcessorException;
+public interface MemcachedKeyCodec {
+  String encode(String cacheName, Object key);
 
-public class MemcachedEntryProcessorResult<T>
-    implements javax.cache.processor.EntryProcessorResult<T> {
-  private final T t;
-
-  public MemcachedEntryProcessorResult(T t) {
-    this.t = t;
-  }
-
-  @Override
-  public T get() throws EntryProcessorException {
-    return t;
-  }
+  Object decode(String cacheName, String key);
 }

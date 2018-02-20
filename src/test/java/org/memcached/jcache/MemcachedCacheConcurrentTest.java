@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 Onshape, Inc..
+ * Copyright 2018 Onshape, Inc..
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,9 @@
  */
 package org.memcached.jcache;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertTrue;
 
 import java.io.Serializable;
 import java.lang.management.ManagementFactory;
@@ -210,6 +212,8 @@ public class MemcachedCacheConcurrentTest { //extends AbstractMemcachedTest {
   }
 
   private static class ValueObject implements Serializable {
+    static final long serialVersionUID = -687991492884005033L;
+
     private Long id;
     private String code;
     private Date timestamp;

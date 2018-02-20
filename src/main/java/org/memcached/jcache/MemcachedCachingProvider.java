@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 Onshape, Inc..
+ * Copyright 2018 Onshape, Inc..
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,6 @@ import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
@@ -29,8 +28,13 @@ import java.util.concurrent.ConcurrentMap;
 import javax.cache.CacheException;
 import javax.cache.CacheManager;
 import javax.cache.configuration.OptionalFeature;
+import net.spy.memcached.BinaryConnectionFactory;
+import net.spy.memcached.ConnectionFactory;
+import net.spy.memcached.ConnectionFactoryBuilder;
 
 public final class MemcachedCachingProvider implements javax.cache.spi.CachingProvider {
+  private static ConnectionFactoryBuilder connectionFactoryBuilder;
+
   private static final URI defaultUri;
   private static final Properties defaultProperties;
 
@@ -62,6 +66,18 @@ public final class MemcachedCachingProvider implements javax.cache.spi.CachingPr
       new ConcurrentHashMap<>();
 
   public MemcachedCachingProvider() {}
+
+  public static void setConnectionFactoryBuilder(ConnectionFactoryBuilder builder) {
+    connectionFactoryBuilder = builder;
+  }
+
+  public ConnectionFactory getConnectionFactory() {
+    if (connectionFactoryBuilder != null) {
+      return connectionFactoryBuilder.build();
+    } else {
+      return new BinaryConnectionFactory();
+    }
+  }
 
   @Override
   public CacheManager getCacheManager(URI uri, ClassLoader classLoader, Properties properties) {
@@ -108,20 +124,16 @@ public final class MemcachedCachingProvider implements javax.cache.spi.CachingPr
 
   @Override
   public void close() {
-    Iterator<Map.Entry<Pair<URI, ClassLoader>, CacheManager>> i =
-        cacheManagers.entrySet().iterator();
-
-    while (i.hasNext()) {
-      Map.Entry<Pair<URI, ClassLoader>, CacheManager> entry = i.next();
-
-      CacheManager cm = entry.getValue();
-
-      if (cm != null && !cm.isClosed()) {
-        cm.close();
-      }
-
-      i.remove();
-    }
+    cacheManagers
+        .entrySet()
+        .parallelStream()
+        .<Map.Entry<Pair<URI, ClassLoader>, CacheManager>>forEach(
+            entry -> {
+              CacheManager cm = entry.getValue();
+              if (cm != null && !cm.isClosed()) {
+                cm.close();
+              }
+            });
   }
 
   @Override
@@ -140,7 +152,7 @@ public final class MemcachedCachingProvider implements javax.cache.spi.CachingPr
 
   @Override
   public boolean isSupported(OptionalFeature optionalFeature) {
-    return optionalFeature.equals(OptionalFeature.STORE_BY_REFERENCE);
+    return false;
   }
 
   protected void close(CacheManager cacheManager) {

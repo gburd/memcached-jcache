@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 Onshape, Inc..
+ * Copyright 2018 Onshape, Inc..
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,13 +34,14 @@ import javax.cache.event.CacheEntryUpdatedListener;
 import javax.cache.expiry.Duration;
 import javax.cache.expiry.ModifiedExpiryPolicy;
 import javax.cache.spi.CachingProvider;
-
 import org.junit.Test;
 
 public class MemcachedCacheEventTest {
-    @Test public void skip() {}
 
-  // TODO(gburd): @Test(timeout = 5000L)
+  @Test
+  public void ignore() {}
+
+  //@Test(timeout = 5000L)
   public void testCacheEntryListener() throws InterruptedException {
     final MyCacheEntryListener myCacheEntryListener = new MyCacheEntryListener();
     final MyCacheEntryEventFilter myCacheEntryEventFilter = new MyCacheEntryEventFilter();

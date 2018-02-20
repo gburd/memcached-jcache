@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 Onshape, Inc..
+ * Copyright 2018 Onshape, Inc..
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,22 +31,21 @@ import javax.cache.expiry.EternalExpiryPolicy;
 import javax.cache.expiry.ExpiryPolicy;
 import javax.cache.expiry.ModifiedExpiryPolicy;
 import javax.cache.expiry.TouchedExpiryPolicy;
-import javax.cache.spi.CachingProvider;
 
 public class MemcachedCacheManager implements javax.cache.CacheManager {
   private final URI uri;
   private final ClassLoader classLoader;
   private final Properties properties;
-  private final CachingProvider cachingProvider;
-
+  private final MemcachedCachingProvider cachingProvider;
   private final ConcurrentMap<String, Cache<?, ?>> caches = new ConcurrentHashMap<>();
-
   private final AtomicBoolean closed = new AtomicBoolean();
-
   private final Object lock = new Object();
 
   public MemcachedCacheManager(
-      URI uri, ClassLoader classLoader, Properties properties, CachingProvider cachingProvider) {
+      URI uri,
+      ClassLoader classLoader,
+      Properties properties,
+      MemcachedCachingProvider cachingProvider) {
     this.uri = uri;
     this.classLoader = classLoader;
     this.properties = properties;
@@ -54,7 +53,7 @@ public class MemcachedCacheManager implements javax.cache.CacheManager {
   }
 
   @Override
-  public CachingProvider getCachingProvider() {
+  public MemcachedCachingProvider getCachingProvider() {
     return cachingProvider;
   }
 
@@ -133,7 +132,7 @@ public class MemcachedCacheManager implements javax.cache.CacheManager {
     checkState();
 
     // An "unmodifiable" set will still reference the mutable keySet(), so copy it first.
-    Set<String> keys = new HashSet<String>(caches.keySet().size());
+    Set<String> keys = new HashSet<>(caches.keySet().size());
     keys.addAll(caches.keySet());
     return Collections.unmodifiableSet(keys);
   }
