@@ -46,8 +46,6 @@ import javax.cache.processor.EntryProcessorResult;
 import javax.management.MBeanException;
 import javax.management.ObjectName;
 import javax.management.OperationsException;
-
-import com.diffplug.common.base.Errors;
 import net.spy.memcached.AddrUtil;
 import net.spy.memcached.BinaryConnectionFactory;
 import net.spy.memcached.CASResponse;
@@ -55,7 +53,6 @@ import net.spy.memcached.CASValue;
 import net.spy.memcached.ConnectionFactory;
 import net.spy.memcached.ConnectionObserver;
 import net.spy.memcached.MemcachedClient;
-import net.spy.memcached.internal.OperationFuture;
 import net.spy.memcached.transcoders.Transcoder;
 import org.apache.commons.lang3.StringUtils;
 
@@ -199,7 +196,10 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
 
     if (value == null && cacheLoader != null && configuration.isReadThrough()) {
       value = (V) cacheLoader.load(key);
-      client.set(encodedKeyFor(key), expiry, value, transcoder);
+      if (value != null) {
+        asCompletableFuture(client.set(encodedKeyFor(key), expiry, value, transcoder))
+            .thenAccept(v -> {});
+      }
     }
 
     if (statisticsEnabled) {
@@ -232,9 +232,13 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
               keys.stream().filter(key -> !kvp.containsKey(key)).collect(Collectors.toSet()));
       lkvp.entrySet()
           .parallelStream()
-          .forEach(
+          .filter(entry -> entry.getValue() != null)
+          .map(
               entry ->
-                  client.set(encodedKeyFor(entry.getKey()), expiry, entry.getValue(), transcoder));
+                  asCompletableFuture(
+                          client.set(
+                              encodedKeyFor(entry.getKey()), expiry, entry.getValue(), transcoder)))
+              .forEach(cf -> cf.thenAccept(v -> {}));
       kvp.putAll(lkvp);
     }
 
@@ -271,8 +275,12 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
               try {
                 Object value = client.get(encodedKeyFor(key));
                 if (value == null || replaceExistingValues) {
-                  V loadedValue = (V) cacheLoader.load(key);
-                  client.add(encodedKeyFor(key), expiry, loadedValue, transcoder);
+                  if (cacheLoader != null) {
+                    V loadedValue = (V) cacheLoader.load(key);
+                    if (loadedValue != null) {
+                      client.add(encodedKeyFor(key), expiry, loadedValue, transcoder);
+                    }
+                  }
                 }
               } catch (Exception e) {
                 cl.onException(e);
@@ -292,15 +300,10 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
       throw new NullPointerException();
     }
 
-    OperationFuture<Boolean> of = client.set(encodedKeyFor(key), expiry, value);
-    try {
-      of.get();
-      if (statisticsEnabled) {
-        statistics.increasePuts(1);
-        statistics.addGetTime(timer.elapsed());
-      }
-    } catch (InterruptedException | ExecutionException e) {
-      of.cancel();
+    asCompletableFuture(client.set(encodedKeyFor(key), expiry, value)).thenAccept(v -> {});
+    if (statisticsEnabled) {
+      statistics.increasePuts(1);
+      statistics.addGetTime(timer.elapsed());
     }
   }
 
@@ -321,7 +324,8 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
     }
 
     final Timer timer = Timer.start(!statisticsEnabled);
-    client.set(encodedKeyFor(key), expiry, value, transcoder);
+    asCompletableFuture(client.set(encodedKeyFor(key), expiry, value, transcoder))
+        .thenAccept(v -> {});
 
     if (statisticsEnabled) {
       timer.stop();
@@ -382,17 +386,11 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
       throw new NullPointerException();
     }
 
-    boolean applied = false;
-    try {
-      applied = this.<Boolean>asCompletableFuture(client.delete(encodedKeyFor(key))).get();
-      if (statisticsEnabled) {
-        statistics.increaseRemovals(1);
-        statistics.addRemoveTime(timer.elapsed());
-      }
-    } catch (InterruptedException | ExecutionException e) {
-      applied = false;
+    final boolean applied = this.asCompletableFuture(client.delete(encodedKeyFor(key))).join();
+    if (statisticsEnabled) {
+      statistics.increaseRemovals(1);
+      statistics.addRemoveTime(timer.elapsed());
     }
-
     return applied;
   }
 
