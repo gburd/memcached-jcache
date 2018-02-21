@@ -56,7 +56,7 @@ public class MemcachedCacheConcurrentTest { //extends AbstractMemcachedTest {
   private static final int TEST_CACHE_SIZE = 100_000;
   private static final int MAXIMUM_CACHE_SIZE = 50_000;
 
-  @Test(timeout = 60000L)
+  @Test(timeout = 90000L)
   public void main() throws Exception {
     final AtomicInteger loads = new AtomicInteger();
 
@@ -123,7 +123,7 @@ public class MemcachedCacheConcurrentTest { //extends AbstractMemcachedTest {
       uniques.addAll(values);
     }
 
-    assertTrue(TEST_CACHE_SIZE <= loads.get()); //TODO(gburd): was ==, but why?
+    assertTrue(TEST_CACHE_SIZE <= loads.get());
     assertEquals(TEST_CACHE_SIZE, uniques.size());
 
     executorService.shutdown();

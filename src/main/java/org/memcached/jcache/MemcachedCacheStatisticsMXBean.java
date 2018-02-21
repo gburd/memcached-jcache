@@ -39,9 +39,10 @@ public class MemcachedCacheStatisticsMXBean
   public float getCacheHitPercentage() {
     final long hits = getCacheHits();
     if (hits == 0) {
-      return 1F;
+      return 1;
     }
-    return (float) hits / getCacheGets() * 100.0f;
+    long gets = getCacheGets();
+    return (gets > 0) ? (float) (hits / (float) gets * 100.0) : 1;
   }
 
   @Override
@@ -55,7 +56,8 @@ public class MemcachedCacheStatisticsMXBean
     if (misses == 0) {
       return 0;
     }
-    return (float) misses / getCacheGets() * 100.0f;
+    long gets = getCacheGets();
+    return (gets > 0) ? (float) (misses / (float) gets * 100.0) : 1;
   }
 
   @Override

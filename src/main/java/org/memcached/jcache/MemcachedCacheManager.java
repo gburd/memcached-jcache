@@ -19,7 +19,6 @@ import java.net.URI;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Properties;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -130,11 +129,7 @@ public class MemcachedCacheManager implements javax.cache.CacheManager {
   @Override
   public Iterable<String> getCacheNames() {
     checkState();
-
-    // An "unmodifiable" set will still reference the mutable keySet(), so copy it first.
-    Set<String> keys = new HashSet<>(caches.keySet().size());
-    keys.addAll(caches.keySet());
-    return Collections.unmodifiableSet(keys);
+    return Collections.unmodifiableSet(new HashSet<>(caches.keySet()));
   }
 
   @Override
