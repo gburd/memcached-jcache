@@ -489,7 +489,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
               e -> {
                 LOG.info(
                     String.format(
-                        "Unable to remove key {} from cache {}.", key.toString(), cacheName));
+                        "Unable to remove key %s from cache %s.", key.toString(), cacheName));
                 return false;
               })
           .join()) {
@@ -525,7 +525,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
       applied = (casr == CASResponse.OK);
       if (!applied) {
         LOG.info(
-            String.format("Unable to replace key {} from cache {}.", key.toString(), cacheName));
+            String.format("Unable to replace key %s from cache %s.", key.toString(), cacheName));
       }
       if (statisticsEnabled) {
         statistics.increaseRemovals(1);
