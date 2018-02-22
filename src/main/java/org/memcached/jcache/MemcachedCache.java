@@ -781,15 +781,12 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
     ConnectionFactory connectionFactory = getConnectionFactory();
     this.transcoder = getTranscoder(connectionFactory);
 
+    List<InetSocketAddress> addresses = AddrUtil.getAddresses("127.0.0.1:11211");
     String servers = properties.getProperty("servers", "127.0.0.1:11211");
-    if (servers == null) {
-      throw new IllegalArgumentException("servers is null");
-    }
-    List<InetSocketAddress> addresses = AddrUtil.getAddresses(servers);
-    if (addresses == null || addresses.size() < 1) {
-      LOG.warning(
-          "Invalid or missing server addresses in properties, defaulting to 127.0.0.1:11211");
-      addresses = AddrUtil.getAddresses("127.0.0.1:11211");
+    if (StringUtils.isBlank(servers)) {
+      LOG.warning("Invalid or missing server addresses in properties, defaulting to 127.0.0.1:11211");
+    } else {
+      addresses = AddrUtil.getAddresses(servers);
     }
     try {
       client = new MemcachedClient(connectionFactory, addresses);
