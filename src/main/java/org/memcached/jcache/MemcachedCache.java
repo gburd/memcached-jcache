@@ -21,6 +21,7 @@ import java.lang.management.ManagementFactory;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.net.SocketAddress;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -774,43 +775,19 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
     return connectionFactory;
   }
 
+  private static boolean serviceAvailable(String ip, int port) {
+
+    try (Socket socket = new Socket()) {
+      socket.connect(new InetSocketAddress(ip, port), 500);
+      return true;
+    } catch (Exception ex) {
+    }
+    return false;
+  }
+
   private MemcachedClient getClient(Properties properties) {
     if (closed.get()) {
       return null;
-    }
-    ConnectionFactory connectionFactory = getConnectionFactory();
-    this.transcoder = getTranscoder(connectionFactory);
-
-    List<InetSocketAddress> addresses = AddrUtil.getAddresses("127.0.0.1:11211");
-    String servers = properties.getProperty("servers", "127.0.0.1:11211");
-    if (StringUtils.isBlank(servers)) {
-      LOG.warning("Invalid or missing server addresses in properties, defaulting to 127.0.0.1:11211");
-    } else {
-      addresses = AddrUtil.getAddresses(servers);
-    }
-    try {
-      client = new MemcachedClient(connectionFactory, addresses);
-      client.addObserver(
-          new ConnectionObserver() {
-            @Override
-            public void connectionEstablished(SocketAddress socketAddress, int i) {
-              LOG.info("Connection to MemcacheD established for cache: " + cacheName);
-            }
-
-            @Override
-            public void connectionLost(SocketAddress socketAddress) {
-              LOG.info("Connection to MemcacheD disconnected for cache: " + cacheName);
-            }
-          });
-    } catch (IOException e) {
-      throw new RuntimeException(e);
-    }
-    return client;
-  }
-
-  private synchronized MemcachedClient checkState() {
-    if (isClosed()) {
-      throw new IllegalStateException("This cache is closed!");
     }
 
     // If the set of servers has changed, close and reconnect our client.
@@ -822,6 +799,56 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
         client.shutdown();
         client = null;
       }
+    }
+
+    ConnectionFactory connectionFactory = getConnectionFactory();
+    this.transcoder = getTranscoder(connectionFactory);
+
+    List<InetSocketAddress> addresses = AddrUtil.getAddresses("127.0.0.1:11211");
+    if (StringUtils.isBlank(servers)) {
+      LOG.warning(
+          "Invalid or missing server addresses in properties, defaulting to 127.0.0.1:11211");
+    } else {
+      addresses =
+          AddrUtil.getAddresses(servers)
+              .stream()
+              .filter(
+                  address ->
+                      serviceAvailable(address.getAddress().getHostAddress(), address.getPort()))
+              .collect(Collectors.toList());
+    }
+
+    if (!addresses.isEmpty()) {
+      try {
+        client = new MemcachedClient(connectionFactory, addresses);
+        client.addObserver(
+            new ConnectionObserver() {
+              @Override
+              public void connectionEstablished(SocketAddress socketAddress, int i) {
+                LOG.info("Connection to MemcacheD established for cache: " + cacheName);
+              }
+
+              @Override
+              public void connectionLost(SocketAddress socketAddress) {
+                LOG.info("Connection to MemcacheD disconnected for cache: " + cacheName);
+              }
+            });
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+    }
+    if (client.getConnection().isAlive()) {
+      return client;
+    } else {
+      client = null;
+    }
+
+    return client;
+  }
+
+  private synchronized MemcachedClient checkState() {
+    if (isClosed()) {
+      throw new IllegalStateException("This cache is closed!");
     }
 
     // If the client is null or shut down, attempt to reconnect.
