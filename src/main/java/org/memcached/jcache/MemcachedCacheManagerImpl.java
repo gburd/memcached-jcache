@@ -283,12 +283,12 @@ public class MemcachedCacheManagerImpl implements MemcachedCacheManager {
               new ConnectionObserver() {
                 @Override
                 public void connectionEstablished(SocketAddress socketAddress, int i) {
-                  LOG.info("Connection to MemcacheD established for cache: " + cacheName);
+                  LOG.info(String.format("Connection to MemcacheD established to: %s on reconnect # %d.", socketAddress.toString(), i));
                 }
 
                 @Override
                 public void connectionLost(SocketAddress socketAddress) {
-                  LOG.info("Connection to MemcacheD disconnected for cache: " + cacheName);
+                  LOG.info(String.format("Lost connection to MemcacheD: ", socketAddress.toString()));
                 }
               });
         } catch (IOException e) {
