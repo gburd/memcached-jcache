@@ -16,16 +16,11 @@
 package org.memcached.jcache;
 
 import com.diffplug.common.base.Errors;
-import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
-import java.net.InetSocketAddress;
-import java.net.Socket;
-import java.net.SocketAddress;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
@@ -47,12 +42,9 @@ import javax.cache.processor.EntryProcessorResult;
 import javax.management.MBeanException;
 import javax.management.ObjectName;
 import javax.management.OperationsException;
-import net.spy.memcached.AddrUtil;
-import net.spy.memcached.BinaryConnectionFactory;
 import net.spy.memcached.CASResponse;
 import net.spy.memcached.CASValue;
 import net.spy.memcached.ConnectionFactory;
-import net.spy.memcached.ConnectionObserver;
 import net.spy.memcached.MemcachedClient;
 import net.spy.memcached.transcoders.Transcoder;
 import org.apache.commons.lang3.StringUtils;
@@ -66,11 +58,9 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
   private final Statistics statistics = new Statistics();
   private final MemcachedCacheLoader cacheLoader;
   private final AtomicBoolean closed = new AtomicBoolean();
-  private int serversHashCode = 0;
+  private final Transcoder<V> transcoder;
   private MemcachedKeyCodec keyCodec = null;
   private int expiry;
-  private Transcoder<V> transcoder;
-  private MemcachedClient client;
 
   public MemcachedCache(
       String cacheName, CompleteConfiguration<K, V> configuration, CacheManager cacheManager) {
@@ -111,6 +101,10 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
         throw new CacheException(e);
       }
     }
+
+    MemcachedCachingProvider provider =
+        (MemcachedCachingProvider) cacheManager.getCachingProvider();
+    transcoder = getTranscoder(provider.getConnectionFactory());
 
     // The 'closed' state is logical, meaning "we're not going to re-open or use the client
     // connection to MemcacheD.  This is different from the client being null or the client
@@ -679,10 +673,8 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
     synchronized (closed) {
       if (closed.compareAndSet(false, true)) {
 
-        if (client != null) {
-          client.shutdown();
-        }
-        ((MemcachedCacheManager) cacheManager).close(this);
+        cacheManager.closeMemcachedClientConnection(cacheName);
+        cacheManager.close(this);
 
         if (configuration.isManagementEnabled()) {
           String name = MemcachedCacheMXBean.getObjectName(this);
@@ -740,11 +732,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
     throw new UnsupportedOperationException();
   }
 
-  public MemcachedClient getMemcachedClient() {
-    return client;
-  }
-
-  private Transcoder<V> getTranscoder(ConnectionFactory connectionFactory) {
+  protected Transcoder<V> getTranscoder(ConnectionFactory connectionFactory) {
     Transcoder<V> transcoder = (Transcoder<V>) connectionFactory.getDefaultTranscoder();
     try {
       String className = property(cacheManager.getProperties(), "serializer", cacheName, "");
@@ -767,95 +755,11 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
     return transcoder;
   }
 
-  private ConnectionFactory getConnectionFactory() {
-    ConnectionFactory connectionFactory = cacheManager.getCachingProvider().getConnectionFactory();
-    if (connectionFactory == null) {
-      connectionFactory = new BinaryConnectionFactory();
-    }
-    return connectionFactory;
-  }
-
-  private static boolean serviceAvailable(String ip, int port) {
-
-    try (Socket socket = new Socket()) {
-      socket.connect(new InetSocketAddress(ip, port), 500);
-      return true;
-    } catch (Exception ex) {
-    }
-    return false;
-  }
-
-  private MemcachedClient getClient(Properties properties) {
-    if (closed.get()) {
-      return null;
-    }
-
-    // If the set of servers has changed, close and reconnect our client.
-    String servers = cacheManager.getProperties().getProperty("servers", "127.0.0.1:11211");
-    int hashCode = servers == null ? 0 : servers.hashCode();
-    if (hashCode != serversHashCode) {
-      serversHashCode = servers.hashCode();
-      if (client != null) {
-        client.shutdown();
-        client = null;
-      }
-    }
-
-    ConnectionFactory connectionFactory = getConnectionFactory();
-    this.transcoder = getTranscoder(connectionFactory);
-
-    List<InetSocketAddress> addresses = AddrUtil.getAddresses("127.0.0.1:11211");
-    if (StringUtils.isBlank(servers)) {
-      LOG.warning(
-          "Invalid or missing server addresses in properties, defaulting to 127.0.0.1:11211");
-    } else {
-      addresses =
-          AddrUtil.getAddresses(servers)
-              .stream()
-              .filter(
-                  address ->
-                      serviceAvailable(address.getAddress().getHostAddress(), address.getPort()))
-              .collect(Collectors.toList());
-    }
-
-    if (!addresses.isEmpty()) {
-      try {
-        client = new MemcachedClient(connectionFactory, addresses);
-        client.addObserver(
-            new ConnectionObserver() {
-              @Override
-              public void connectionEstablished(SocketAddress socketAddress, int i) {
-                LOG.info("Connection to MemcacheD established for cache: " + cacheName);
-              }
-
-              @Override
-              public void connectionLost(SocketAddress socketAddress) {
-                LOG.info("Connection to MemcacheD disconnected for cache: " + cacheName);
-              }
-            });
-      } catch (IOException e) {
-        throw new RuntimeException(e);
-      }
-    }
-    if (client.getConnection().isAlive()) {
-      return client;
-    } else {
-      client = null;
-    }
-
-    return client;
-  }
-
   private synchronized MemcachedClient checkState() {
     if (isClosed()) {
       throw new IllegalStateException("This cache is closed!");
     }
-
-    // If the client is null or shut down, attempt to reconnect.
-    if (client == null || client.getConnection().isShutDown()) {
-      client = getClient(cacheManager.getProperties());
-    }
-    return client;
+    return cacheManager.getMemcachedClient(cacheName);
   }
 
   private <T> CompletableFuture<T> asCompletableFuture(Future<T> future) {

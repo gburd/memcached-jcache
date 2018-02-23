@@ -56,6 +56,7 @@ public class MemcachedCacheTest {
     Properties properties = cachingProvider.getDefaultProperties();
     properties.setProperty("servers", "127.0.0.1:" + String.valueOf(port));
     properties.setProperty("maximumSize", "1000000");
+    properties.setProperty("cache.useSharedClientConnection", "true");
     cacheManager =
         cachingProvider.getCacheManager(
             cachingProvider.getDefaultURI(), this.getClass().getClassLoader(), properties);

@@ -15,13 +15,21 @@
  */
 package org.memcached.jcache;
 
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.net.SocketAddress;
 import java.net.URI;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.logging.Logger;
+import java.util.stream.Collectors;
 import javax.cache.Cache;
 import javax.cache.CacheException;
 import javax.cache.configuration.CompleteConfiguration;
@@ -30,15 +38,25 @@ import javax.cache.expiry.EternalExpiryPolicy;
 import javax.cache.expiry.ExpiryPolicy;
 import javax.cache.expiry.ModifiedExpiryPolicy;
 import javax.cache.expiry.TouchedExpiryPolicy;
+import net.spy.memcached.AddrUtil;
+import net.spy.memcached.BinaryConnectionFactory;
+import net.spy.memcached.ConnectionFactory;
+import net.spy.memcached.ConnectionObserver;
+import net.spy.memcached.MemcachedClient;
+import org.apache.commons.lang3.StringUtils;
 
 public class MemcachedCacheManager implements javax.cache.CacheManager {
+  private static final Logger LOG = Logger.getLogger(MemcachedCacheManager.class.getName());
+
   private final URI uri;
   private final ClassLoader classLoader;
   private final Properties properties;
   private final MemcachedCachingProvider cachingProvider;
-  private final ConcurrentMap<String, Cache<?, ?>> caches = new ConcurrentHashMap<>();
+  private final ConcurrentMap<String, MemcachedCache<?, ?>> caches = new ConcurrentHashMap<>();
+  private final ConcurrentMap<String, MemcachedClient> clients = new ConcurrentHashMap<>();
   private final AtomicBoolean closed = new AtomicBoolean();
   private final Object lock = new Object();
+  private MemcachedClient client;
 
   public MemcachedCacheManager(
       URI uri,
@@ -91,7 +109,7 @@ public class MemcachedCacheManager implements javax.cache.CacheManager {
         throw new CacheException("This cache already exists!");
       }
 
-      Cache<K, V> cache = new MemcachedCache<K, V>(cacheName, completeConfiguration, this);
+      MemcachedCache<K, V> cache = new MemcachedCache<K, V>(cacheName, completeConfiguration, this);
 
       caches.put(cacheName, cache);
 
@@ -140,12 +158,12 @@ public class MemcachedCacheManager implements javax.cache.CacheManager {
       throw new NullPointerException();
     }
 
-    Cache<?, ?> cache = caches.remove(cacheName);
-
+    Cache<?, ?> cache = caches.get(cacheName);
     if (cache != null) {
       cache.clear();
       cache.close();
     }
+    caches.remove(cacheName);
   }
 
   @Override
@@ -189,8 +207,132 @@ public class MemcachedCacheManager implements javax.cache.CacheManager {
     return clazz.cast(this);
   }
 
+  public synchronized void closeMemcachedClientConnection(String cacheName) {
+    if (cacheName != null) {
+      boolean closeSharedClient = (StringUtils.isBlank(cacheName));
+      if (closeSharedClient) {
+        MemcachedClient client = clients.get("");
+        for (Map.Entry<String, MemcachedClient> entry : clients.entrySet()) {
+          if (entry.getValue() == client) {
+            clients.remove(entry.getKey());
+          }
+        }
+        if (client.getConnection().isAlive()) {
+          client.shutdown();
+        }
+        clients.remove("");
+      } else {
+        MemcachedCache<?, ?> cache = caches.get(cacheName);
+        if (cache != null) {
+          MemcachedClient client = clients.get(cacheName);
+          if (client != clients.get("")) {
+            if (client.getConnection().isAlive()) {
+              client.shutdown();
+            }
+          }
+          clients.remove(cacheName);
+        }
+      }
+    }
+  }
+
+  public synchronized MemcachedClient getMemcachedClient(String cacheName) {
+    if (StringUtils.isBlank(cacheName)) {
+      return null;
+    }
+    MemcachedCache<?, ?> cache = caches.get(cacheName);
+    if (cache == null) {
+      return null;
+    }
+    MemcachedClient client = clients.get(cacheName);
+    if (client != null
+        && (client.getConnection().isShutDown() || !client.getConnection().isAlive())) {
+      closeMemcachedClientConnection(cacheName);
+      client = null;
+    }
+    boolean sharedClient =
+        Boolean.valueOf(properties.getProperty(cacheName + ".useSharedClientConnection", "false"));
+    if (sharedClient) {
+      client = clients.get("");
+    }
+    if (client == null) {
+      ConnectionFactory connectionFactory = getConnectionFactory();
+
+      String serversPropertyKey = sharedClient ? "servers" : cacheName + ".servers";
+      String servers = properties.getProperty(serversPropertyKey, "127.0.0.1:11211");
+      List<InetSocketAddress> addresses = AddrUtil.getAddresses("127.0.0.1:11211");
+      if (StringUtils.isBlank(servers)) {
+        LOG.warning(
+            String.format(
+                "Invalid or missing server addresses in properties (key: %s), defaulting to 127.0.0.1:11211",
+                serversPropertyKey));
+      } else {
+        addresses =
+            AddrUtil.getAddresses(servers)
+                .stream()
+                .filter(
+                    address ->
+                        serviceAvailable(address.getAddress().getHostAddress(), address.getPort()))
+                .collect(Collectors.toList());
+      }
+
+      if (!addresses.isEmpty()) {
+        try {
+          client = new MemcachedClient(connectionFactory, addresses);
+          client.addObserver(
+              new ConnectionObserver() {
+                @Override
+                public void connectionEstablished(SocketAddress socketAddress, int i) {
+                  LOG.info("Connection to MemcacheD established for cache: " + cacheName);
+                }
+
+                @Override
+                public void connectionLost(SocketAddress socketAddress) {
+                  LOG.info("Connection to MemcacheD disconnected for cache: " + cacheName);
+                }
+              });
+        } catch (IOException e) {
+          throw new RuntimeException(e);
+        }
+      }
+      if (client != null) {
+        if (client.getConnection().isAlive()) {
+          if (sharedClient) {
+            clients.put("", client);
+          }
+          clients.put(cacheName, client);
+        } else {
+          client = null;
+        }
+      }
+    }
+    if (client == null) {
+      throw new IllegalStateException(
+          "Unable to establish a client connection to MemcacheD for "
+              + ("".equals(cacheName) ? "shared connection" : cacheName));
+    }
+    return client;
+  }
+
   protected void close(Cache<?, ?> cache) {
     caches.remove(cache.getName());
+  }
+
+  private ConnectionFactory getConnectionFactory() {
+    ConnectionFactory connectionFactory = cachingProvider.getConnectionFactory();
+    if (connectionFactory == null) {
+      connectionFactory = new BinaryConnectionFactory();
+    }
+    return connectionFactory;
+  }
+
+  private static boolean serviceAvailable(String ip, int port) {
+    try (Socket socket = new Socket()) {
+      socket.connect(new InetSocketAddress(ip, port), 500);
+      return true;
+    } catch (Exception ex) {
+    }
+    return false;
   }
 
   private void checkState() {
