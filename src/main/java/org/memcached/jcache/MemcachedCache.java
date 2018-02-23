@@ -54,7 +54,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
 
   private final String cacheName;
   private final CompleteConfiguration<K, V> configuration;
-  private final MemcachedCacheManager cacheManager;
+  private final MemcachedCacheManagerImpl cacheManager;
   private final Statistics statistics = new Statistics();
   private final MemcachedCacheLoader cacheLoader;
   private final AtomicBoolean closed = new AtomicBoolean();
@@ -66,7 +66,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
       String cacheName, CompleteConfiguration<K, V> configuration, CacheManager cacheManager) {
     this.cacheName = cacheName;
     this.configuration = configuration;
-    this.cacheManager = (MemcachedCacheManager) cacheManager;
+    this.cacheManager = (MemcachedCacheManagerImpl) cacheManager;
 
     Properties properties = cacheManager.getProperties();
 

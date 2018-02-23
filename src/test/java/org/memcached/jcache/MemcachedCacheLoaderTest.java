@@ -20,6 +20,7 @@ import static org.junit.Assert.*;
 import com.google.common.collect.Sets;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -59,6 +60,10 @@ public class MemcachedCacheLoaderTest {
 
     try (CachingProvider cachingProvider =
         Caching.getCachingProvider(MemcachedCachingProvider.class.getName())) {
+      int port = 11211;
+      Properties properties = cachingProvider.getDefaultProperties();
+      properties.setProperty("loadingCache.servers", "127.0.0.1:" + String.valueOf(port));
+
       CacheManager cacheManager = cachingProvider.getCacheManager();
 
       MutableConfiguration<String, Integer> custom = new MutableConfiguration<>();
@@ -129,7 +134,9 @@ public class MemcachedCacheLoaderTest {
     try (CachingProvider cachingProvider =
         Caching.getCachingProvider(MemcachedCachingProvider.class.getName())) {
       CacheManager cacheManager = cachingProvider.getCacheManager();
-
+      int port = 11211;
+      Properties properties = cachingProvider.getDefaultProperties();
+      properties.setProperty("loadingCache.servers", "127.0.0.1:" + String.valueOf(port));
       MutableConfiguration<String, Integer> custom = new MutableConfiguration<>();
 
       custom.setStoreByValue(false);

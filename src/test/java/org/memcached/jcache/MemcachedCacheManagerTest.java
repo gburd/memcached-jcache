@@ -45,7 +45,6 @@ public class MemcachedCacheManagerTest {
   @Before
   public void init() {
     cachingProvider = Caching.getCachingProvider(MemcachedCachingProvider.class.getName());
-
     assertNotNull(cachingProvider);
   }
 
@@ -119,8 +118,10 @@ public class MemcachedCacheManagerTest {
 
     Cache<Long, String> cache = cacheManager.createCache("maximumSizeCacheTest", configuration);
 
-    long maximumSize = Long.valueOf(cacheManager.getProperties().getProperty("maximumSize"));
-
+    Properties properties = cacheManager.getProperties();
+    int port = 11211;
+    properties.setProperty("maximumSizeCacheTest.servers", "127.0.0.1:" + String.valueOf(port));
+    long maximumSize = Long.valueOf(properties.getProperty("maximumSize"));
     assertNotEquals(0, maximumSize);
 
     for (long l = 1; l <= (maximumSize * 10); l++) {
@@ -130,22 +131,22 @@ public class MemcachedCacheManagerTest {
     cacheManager.close();
   }
   /*
-    @Test(expected = IllegalArgumentException.class)
-    public void testCacheManagerWithCustomInvalidProperties() throws Exception {
-      Properties properties = new Properties();
+      @Test(expected = IllegalArgumentException.class)
+      public void testCacheManagerWithCustomInvalidProperties() throws Exception {
+        Properties properties = new Properties();
 
-      properties.setProperty("unknownProperty", "true");
+        properties.setProperty("unknownProperty", "true");
 
-      try (CacheManager cacheManager = cachingProvider.getCacheManager(null, null, properties); ) {
-        assertNotNull(cacheManager);
+        try (CacheManager cacheManager = cachingProvider.getCacheManager(null, null, properties); ) {
+          assertNotNull(cacheManager);
 
-        MutableConfiguration configuration = new MutableConfiguration();
+          MutableConfiguration configuration = new MutableConfiguration();
 
-        configuration.setStoreByValue(false);
+          configuration.setStoreByValue(false);
 
-        cacheManager.createCache("test", configuration);
+          cacheManager.createCache("test", configuration);
+        }
       }
-    }
   */
   @Test
   public void testCacheManagerWithCustomClassLoaderAndProperties() throws Exception {
@@ -360,6 +361,11 @@ public class MemcachedCacheManagerTest {
   @Test // org.jsr107.tck.CacheManagerTest.getCaches_MutateCacheManager
   public void getCachesAndMutateCacheManager() {
     CacheManager cacheManager = cachingProvider.getCacheManager();
+    int port = 11211;
+    Properties properties = cachingProvider.getDefaultProperties();
+    properties.setProperty("c1.servers", "127.0.0.1:" + String.valueOf(port));
+    properties.setProperty("c2.servers", "127.0.0.1:" + String.valueOf(port));
+    properties.setProperty("c3.servers", "127.0.0.1:" + String.valueOf(port));
 
     MutableConfiguration configuration = new MutableConfiguration();
     configuration.setStoreByValue(false);

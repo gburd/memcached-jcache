@@ -355,6 +355,9 @@ public class MemcachedCacheTest {
           }
         });
 
+    int port = 11211;
+    Properties properties = cachingProvider.getDefaultProperties();
+    properties.setProperty("invokingCache.servers", "127.0.0.1:" + String.valueOf(port));
     Cache<String, Integer> invokingCache = cacheManager.createCache("invokingCache", custom);
 
     assertNull(invokingCache.invoke("1", entryProcessor1));

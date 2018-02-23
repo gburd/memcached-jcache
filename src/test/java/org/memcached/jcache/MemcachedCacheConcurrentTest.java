@@ -60,10 +60,12 @@ public class MemcachedCacheConcurrentTest { //extends AbstractMemcachedTest {
   public void main() throws Exception {
     final AtomicInteger loads = new AtomicInteger();
 
+    int port = 11211;
     Properties properties =
         new Properties() {
           {
             setProperty("maximumSize", String.valueOf(MAXIMUM_CACHE_SIZE));
+            setProperty("workerCache.servers", "127.0.0.1:" + String.valueOf(port));
           }
         };
 

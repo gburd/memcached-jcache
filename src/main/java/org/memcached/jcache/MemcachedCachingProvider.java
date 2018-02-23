@@ -85,7 +85,8 @@ public final class MemcachedCachingProvider implements javax.cache.spi.CachingPr
     ClassLoader _classLoader = (classLoader != null) ? classLoader : getDefaultClassLoader();
     Properties _properties = (properties != null) ? properties : new Properties();
 
-    CacheManager newCacheManager = new MemcachedCacheManager(_uri, _classLoader, _properties, this);
+    CacheManager newCacheManager =
+        new MemcachedCacheManagerImpl(_uri, _classLoader, _properties, this);
 
     CacheManager oldCacheManager =
         cacheManagers.putIfAbsent(new Pair<>(_uri, _classLoader), newCacheManager);

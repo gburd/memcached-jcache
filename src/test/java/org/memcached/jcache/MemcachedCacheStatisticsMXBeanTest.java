@@ -18,6 +18,7 @@ package org.memcached.jcache;
 import static org.junit.Assert.*;
 
 import java.lang.management.ManagementFactory;
+import java.util.Properties;
 import javax.cache.Cache;
 import javax.cache.CacheManager;
 import javax.cache.Caching;
@@ -38,6 +39,10 @@ public class MemcachedCacheStatisticsMXBeanTest {
   public void testCacheStatisticsBean() throws Exception {
     try (CachingProvider cachingProvider =
         Caching.getCachingProvider(MemcachedCachingProvider.class.getName())) {
+      int port = 11211;
+      Properties properties = cachingProvider.getDefaultProperties();
+      properties.setProperty("statisticsCache.servers", "127.0.0.1:" + String.valueOf(port));
+
       CacheManager cacheManager = cachingProvider.getCacheManager();
 
       MutableConfiguration<String, Integer> configuration = new MutableConfiguration<>();
