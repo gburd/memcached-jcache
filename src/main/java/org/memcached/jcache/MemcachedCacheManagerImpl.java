@@ -289,7 +289,7 @@ public class MemcachedCacheManagerImpl implements MemcachedCacheManager {
                 public void connectionEstablished(SocketAddress socketAddress, int i) {
                   LOG.info(
                       String.format(
-                          "Connection to MemcacheD established to: %s on reconnect # %d.",
+                          "Connection to MemcacheD established: %s on reconnect # %d.",
                           socketAddress.toString(), i));
                 }
 
