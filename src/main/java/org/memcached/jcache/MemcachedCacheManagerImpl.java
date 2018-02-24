@@ -212,22 +212,26 @@ public class MemcachedCacheManagerImpl implements MemcachedCacheManager {
       boolean closeSharedClient = (StringUtils.isBlank(cacheName));
       if (closeSharedClient) {
         MemcachedClient client = clients.get("");
-        for (Map.Entry<String, MemcachedClient> entry : clients.entrySet()) {
-          if (entry.getValue() == client) {
-            clients.remove(entry.getKey());
+        if (client != null) {
+          for (Map.Entry<String, MemcachedClient> entry : clients.entrySet()) {
+            if (entry.getValue() == client) {
+              clients.remove(entry.getKey());
+            }
           }
-        }
-        if (client.getConnection().isAlive()) {
-          client.shutdown();
+          if (client.getConnection().isAlive()) {
+            client.shutdown();
+          }
         }
         clients.remove("");
       } else {
         MemcachedCache<?, ?> cache = caches.get(cacheName);
         if (cache != null) {
           MemcachedClient client = clients.get(cacheName);
-          if (client != clients.get("")) {
-            if (client.getConnection().isAlive()) {
-              client.shutdown();
+          if (client != null) {
+            if (client != clients.get("")) {
+              if (client.getConnection().isAlive()) {
+                client.shutdown();
+              }
             }
           }
           clients.remove(cacheName);
@@ -283,12 +287,16 @@ public class MemcachedCacheManagerImpl implements MemcachedCacheManager {
               new ConnectionObserver() {
                 @Override
                 public void connectionEstablished(SocketAddress socketAddress, int i) {
-                  LOG.info(String.format("Connection to MemcacheD established to: %s on reconnect # %d.", socketAddress.toString(), i));
+                  LOG.info(
+                      String.format(
+                          "Connection to MemcacheD established to: %s on reconnect # %d.",
+                          socketAddress.toString(), i));
                 }
 
                 @Override
                 public void connectionLost(SocketAddress socketAddress) {
-                  LOG.info(String.format("Lost connection to MemcacheD: ", socketAddress.toString()));
+                  LOG.info(
+                      String.format("Lost connection to MemcacheD: ", socketAddress.toString()));
                 }
               });
         } catch (IOException e) {
