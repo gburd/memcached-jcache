@@ -34,6 +34,8 @@ import javax.cache.configuration.CacheEntryListenerConfiguration;
 import javax.cache.configuration.CompleteConfiguration;
 import javax.cache.configuration.Configuration;
 import javax.cache.configuration.Factory;
+import javax.cache.expiry.Duration;
+import javax.cache.expiry.ExpiryPolicy;
 import javax.cache.integration.CacheLoader;
 import javax.cache.integration.CompletionListener;
 import javax.cache.processor.EntryProcessor;
@@ -54,13 +56,13 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
 
   private final String cacheName;
   private final CompleteConfiguration<K, V> configuration;
+  private final ExpiryPolicy expiryPolicy;
   private final MemcachedCacheManagerImpl cacheManager;
   private final Statistics statistics = new Statistics();
   private final MemcachedCacheLoader cacheLoader;
   private final AtomicBoolean closed = new AtomicBoolean();
   private final Transcoder<V> transcoder;
   private MemcachedKeyCodec keyCodec = null;
-  private int expiry;
 
   public MemcachedCache(
       String cacheName, CompleteConfiguration<K, V> configuration, CacheManager cacheManager) {
@@ -81,7 +83,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
       }
     }
 
-    expiry = Integer.parseUnsignedInt(properties.getProperty("expiry", "3600"));
+    expiryPolicy = configuration.getExpiryPolicyFactory().create();
 
     if (configuration.isReadThrough()) {
       Factory<CacheLoader<K, V>> factory = configuration.getCacheLoaderFactory();
@@ -170,6 +172,22 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
         : key.substring(cacheName.length() + 1);
   }
 
+  private int getExpiryForAccess() {
+    Duration duration = expiryPolicy.getExpiryForAccess();
+    return (duration == null || duration.isEternal()) ? 0 : Math.toIntExact(duration.getDurationAmount());
+  }
+
+  private int getExpiryForUpdate() {
+    Duration duration = expiryPolicy.getExpiryForUpdate();
+    return (duration == null || duration.isEternal()) ? 0 : Math.toIntExact(duration.getDurationAmount());
+  }
+
+  private int getExpiryForCreation() {
+    Duration duration = expiryPolicy.getExpiryForCreation();
+    return (duration == null || duration.isEternal()) ? 0 : Math.toIntExact(duration.getDurationAmount());
+  }
+
+
   @Override
   public V get(K key) {
     if (key == null) {
@@ -191,7 +209,8 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
     if (value == null && cacheLoader != null && configuration.isReadThrough()) {
       value = (V) cacheLoader.load(key);
       if (value != null) {
-        asCompletableFuture(client.set(encodedKeyFor(key), expiry, value, transcoder))
+        final int seconds = getExpiryForAccess();
+        asCompletableFuture(client.set(encodedKeyFor(key), seconds, value, transcoder))
             .exceptionally(
                 Errors.rethrow()
                     .wrapFunction(
@@ -228,6 +247,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
       Map<String, V> lkvp =
           cacheLoader.loadAll(
               keys.stream().filter(key -> !kvp.containsKey(key)).collect(Collectors.toSet()));
+      final int seconds = getExpiryForAccess();
       lkvp.entrySet()
           .parallelStream()
           .filter(entry -> entry.getValue() != null)
@@ -235,7 +255,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
               entry ->
                   asCompletableFuture(
                       client.set(
-                          encodedKeyFor(entry.getKey()), expiry, entry.getValue(), transcoder)))
+                          encodedKeyFor(entry.getKey()), seconds, entry.getValue(), transcoder)))
           .forEach(
               cf -> {
                 cf.exceptionally(
@@ -272,6 +292,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
       throw new NullPointerException();
     }
 
+    final int seconds = getExpiryForCreation();
     MemcachedClient client = checkState();
     keys.parallelStream()
         .forEach(
@@ -282,7 +303,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
                   if (cacheLoader != null) {
                     V loadedValue = (V) cacheLoader.load(key);
                     if (loadedValue != null) {
-                      client.add(encodedKeyFor(key), expiry, loadedValue, transcoder);
+                      client.add(encodedKeyFor(key), seconds, loadedValue, transcoder);
                     }
                   }
                 }
@@ -302,8 +323,9 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
 
     final boolean statisticsEnabled = configuration.isStatisticsEnabled();
     final Timer timer = Timer.start(!statisticsEnabled);
+    final int seconds = getExpiryForCreation();
     MemcachedClient client = checkState();
-    asCompletableFuture(client.set(encodedKeyFor(key), expiry, value))
+    asCompletableFuture(client.set(encodedKeyFor(key), seconds, value))
         .exceptionally(
             Errors.rethrow()
                 .wrapFunction(
@@ -325,16 +347,17 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
 
     final boolean statisticsEnabled = configuration.isStatisticsEnabled();
     final Timer timer = Timer.start(!statisticsEnabled);
+    final int seconds = getExpiryForUpdate();
     MemcachedClient client = checkState();
 
     V previousValue = client.<V>get(encodedKeyFor(key), transcoder);
     if (previousValue == null && cacheLoader != null && configuration.isReadThrough()) {
       previousValue = (V) cacheLoader.load(key);
       // NOTE: skip setting the value here, we're about to change it
-      // client.set(encodedKeyFor(key), expiry, previousValue, transcoder);
+      // client.set(encodedKeyFor(key), seconds, previousValue, transcoder);
     }
 
-    asCompletableFuture(client.set(encodedKeyFor(key), expiry, value, transcoder))
+    asCompletableFuture(client.set(encodedKeyFor(key), seconds, value, transcoder))
         .exceptionally(
             Errors.rethrow()
                 .wrapFunction(
@@ -358,13 +381,14 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
       throw new NullPointerException();
     }
 
+    final int seconds = getExpiryForCreation();
     MemcachedClient client = checkState();
     map.entrySet()
         .parallelStream()
         .map(
             entry ->
                 asCompletableFuture(
-                    client.set(encodedKeyFor(entry.getKey()), expiry, entry.getValue())))
+                    client.set(encodedKeyFor(entry.getKey()), seconds, entry.getValue())))
         .forEach(
             cf -> {
               cf.exceptionally(
@@ -385,9 +409,10 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
 
     final boolean statisticsEnabled = configuration.isStatisticsEnabled();
     final Timer timer = Timer.start(!statisticsEnabled);
+    final int seconds = getExpiryForCreation();
     MemcachedClient client = checkState();
     boolean applied =
-        asCompletableFuture(client.add(encodedKeyFor(key), expiry, value, transcoder))
+        asCompletableFuture(client.add(encodedKeyFor(key), seconds, value, transcoder))
             .exceptionally(
                 Errors.rethrow()
                     .wrapFunction(
@@ -508,6 +533,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
 
     final boolean statisticsEnabled = configuration.isStatisticsEnabled();
     final Timer timer = Timer.start(!statisticsEnabled);
+    final int seconds = getExpiryForUpdate();
     MemcachedClient client = checkState();
 
     boolean applied = false;
@@ -516,7 +542,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
     if (casv != null && oldValue.equals(casv.getValue())) {
       timer.reset();
       CASResponse casr =
-          client.cas(encodedKeyFor(key), casv.getCas(), expiry, newValue, transcoder);
+          client.cas(encodedKeyFor(key), casv.getCas(), seconds, newValue, transcoder);
       applied = (casr == CASResponse.OK);
       if (!applied) {
         LOG.info(
@@ -539,9 +565,10 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
 
     final boolean statisticsEnabled = configuration.isStatisticsEnabled();
     final Timer timer = Timer.start(!statisticsEnabled);
+    final int seconds = getExpiryForUpdate();
     MemcachedClient client = checkState();
     boolean applied =
-        asCompletableFuture(client.replace(encodedKeyFor(key), expiry, value, transcoder))
+        asCompletableFuture(client.replace(encodedKeyFor(key), seconds, value, transcoder))
             .exceptionally(
                 Errors.rethrow()
                     .wrapFunction(
@@ -565,13 +592,14 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
 
     final boolean statisticsEnabled = configuration.isStatisticsEnabled();
     final Timer timer = Timer.start(!statisticsEnabled);
+    final int seconds = getExpiryForUpdate();
     MemcachedClient client = checkState();
     boolean applied = false;
 
     CASValue<V> casv = client.gets(encodedKeyFor(key), transcoder);
     if (casv != null && casv.getValue() != null) {
       applied =
-          client.cas(encodedKeyFor(key), casv.getCas(), expiry, value, transcoder)
+          client.cas(encodedKeyFor(key), casv.getCas(), seconds, value, transcoder)
               == CASResponse.OK;
     }
 

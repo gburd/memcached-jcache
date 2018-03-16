@@ -200,11 +200,11 @@ public class MemcachedCacheManagerImpl implements MemcachedCacheManager {
 
   @Override
   public <T> T unwrap(Class<T> clazz) {
-    if (!clazz.isAssignableFrom(getClass())) {
-      throw new IllegalArgumentException();
+    if (clazz.equals(MemcachedClient.class)) {
+        return clazz.cast(clients.get(""));
+    } else {
+        throw new IllegalArgumentException();
     }
-
-    return clazz.cast(this);
   }
 
   public synchronized void closeMemcachedClientConnection(String cacheName) {
