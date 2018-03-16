@@ -34,6 +34,8 @@ import javax.cache.Cache;
 import javax.cache.CacheException;
 import javax.cache.configuration.CompleteConfiguration;
 import javax.cache.configuration.Configuration;
+import javax.cache.expiry.AccessedExpiryPolicy;
+import javax.cache.expiry.CreatedExpiryPolicy;
 import javax.cache.expiry.EternalExpiryPolicy;
 import javax.cache.expiry.ExpiryPolicy;
 import javax.cache.expiry.ModifiedExpiryPolicy;
@@ -360,10 +362,13 @@ public class MemcachedCacheManagerImpl implements MemcachedCacheManager {
 
     ExpiryPolicy expiryPolicy = configuration.getExpiryPolicyFactory().create();
 
+    // TODO: Properly implement the logic in MemcachedCache to support these various policies.
     if (!(expiryPolicy instanceof EternalExpiryPolicy)
+        && !(expiryPolicy instanceof CreatedExpiryPolicy)
+        && !(expiryPolicy instanceof AccessedExpiryPolicy)
         && !(expiryPolicy instanceof ModifiedExpiryPolicy)
         && !(expiryPolicy instanceof TouchedExpiryPolicy)) {
-      throw new UnsupportedOperationException("Invalid expiry policy configuration!");
+      throw new UnsupportedOperationException("Invalid expiry policy " + expiryPolicy.getClass().getSimpleName() + " configuration!");
     }
 
     if (configuration.isReadThrough() && configuration.getCacheLoaderFactory() == null) {

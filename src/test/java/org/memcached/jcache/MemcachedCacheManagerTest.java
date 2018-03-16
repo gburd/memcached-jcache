@@ -20,6 +20,8 @@ import static org.junit.Assert.*;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Properties;
+import java.util.concurrent.TimeUnit;
+
 import javax.cache.Cache;
 import javax.cache.CacheException;
 import javax.cache.CacheManager;
@@ -35,6 +37,7 @@ import javax.cache.spi.CachingProvider;
 import org.bitstrings.test.junit.runner.ClassLoaderPerTestRunner;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -114,7 +117,9 @@ public class MemcachedCacheManagerTest {
     assertNotNull(cacheManager);
 
     MutableConfiguration<Long, String> configuration =
-        new MutableConfiguration<Long, String>().setStoreByValue(false);
+        new MutableConfiguration<Long, String>()
+              .setStoreByValue(false)
+              .setExpiryPolicyFactory(CreatedExpiryPolicy.factoryOf(new Duration(TimeUnit.SECONDS, 10)));
 
     Cache<Long, String> cache = cacheManager.createCache("maximumSizeCacheTest", configuration);
 
@@ -249,6 +254,7 @@ public class MemcachedCacheManagerTest {
     cacheManager.createCache("cache", configuration);
   }
 
+  @Ignore
   @Test(expected = UnsupportedOperationException.class)
   public void testCreateCacheWithUnsupportedAccessedExpiryPolicy() {
     CacheManager cacheManager = cachingProvider.getCacheManager();
@@ -261,6 +267,7 @@ public class MemcachedCacheManagerTest {
     cacheManager.createCache("cache", configuration);
   }
 
+  @Ignore
   @Test(expected = UnsupportedOperationException.class)
   public void testCreateCacheWithUnsupportedCreatedExpiryPolicy() {
     CacheManager cacheManager = cachingProvider.getCacheManager();
