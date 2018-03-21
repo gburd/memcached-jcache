@@ -19,6 +19,7 @@ import com.diffplug.common.base.Errors;
 import java.lang.management.ManagementFactory;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -174,19 +175,24 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
 
   private int getExpiryForAccess() {
     Duration duration = expiryPolicy.getExpiryForAccess();
-    return (duration == null || duration.isEternal()) ? 0 : Math.toIntExact(duration.getDurationAmount());
+    return (duration == null || duration.isEternal())
+        ? 0
+        : Math.toIntExact(duration.getDurationAmount());
   }
 
   private int getExpiryForUpdate() {
     Duration duration = expiryPolicy.getExpiryForUpdate();
-    return (duration == null || duration.isEternal()) ? 0 : Math.toIntExact(duration.getDurationAmount());
+    return (duration == null || duration.isEternal())
+        ? 0
+        : Math.toIntExact(duration.getDurationAmount());
   }
 
   private int getExpiryForCreation() {
     Duration duration = expiryPolicy.getExpiryForCreation();
-    return (duration == null || duration.isEternal()) ? 0 : Math.toIntExact(duration.getDurationAmount());
+    return (duration == null || duration.isEternal())
+        ? 0
+        : Math.toIntExact(duration.getDurationAmount());
   }
-
 
   @Override
   public V get(K key) {
@@ -230,7 +236,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
   @Override
   public Map<K, V> getAll(Set<? extends K> keys) {
     if (keys == null) {
-      throw new NullPointerException();
+      return Collections.<K, V>emptyMap();
     }
 
     MemcachedClient client = checkState();
@@ -616,23 +622,22 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
 
   @Override
   public void removeAll(Set<? extends K> keys) {
-    if (keys == null) {
-      throw new NullPointerException();
-    }
+    if (keys != null) {
 
-    MemcachedClient client = checkState();
-    keys.parallelStream()
-        .map(key -> asCompletableFuture(client.delete(encodedKeyFor(key))))
-        .forEach(
-            cf -> {
-              cf.exceptionally(
-                      Errors.rethrow()
-                          .wrapFunction(
-                              e -> {
-                                throw new CacheException(e);
-                              }))
-                  .thenAccept(v -> {});
-            });
+      MemcachedClient client = checkState();
+      keys.parallelStream()
+          .map(key -> asCompletableFuture(client.delete(encodedKeyFor(key))))
+          .forEach(
+              cf -> {
+                cf.exceptionally(
+                        Errors.rethrow()
+                            .wrapFunction(
+                                e -> {
+                                  throw new CacheException(e);
+                                }))
+                    .thenAccept(v -> {});
+              });
+    }
   }
 
   @Override
