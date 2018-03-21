@@ -229,7 +229,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
 
   @Override
   public Map<K, V> getAll(Set<? extends K> keys) {
-    if (keys == null || keys.contains(null)) {
+    if (keys == null) {
       throw new NullPointerException();
     }
 
@@ -616,7 +616,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
 
   @Override
   public void removeAll(Set<? extends K> keys) {
-    if (keys == null || keys.contains(null)) {
+    if (keys == null) {
       throw new NullPointerException();
     }
 
