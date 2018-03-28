@@ -16,64 +16,64 @@
 package org.memcached.jcache;
 
 public class MemcachedMutableEntry<K, V> implements javax.cache.processor.MutableEntry<K, V> {
-  private final K key;
-  private final V oldValue;
+    private final K key;
+    private final V oldValue;
 
-  private volatile V newValue;
-  private volatile boolean removed;
-  private volatile boolean updated;
+    private volatile V newValue;
+    private volatile boolean removed;
+    private volatile boolean updated;
 
-  public MemcachedMutableEntry(K key, V oldValue) {
-    this.key = key;
-    this.oldValue = oldValue;
-    this.newValue = oldValue;
-  }
-
-  @Override
-  public boolean exists() {
-    return !removed && ((oldValue != null) || (newValue != null));
-  }
-
-  @Override
-  public void remove() {
-    removed = true;
-  }
-
-  @Override
-  public void setValue(V value) {
-    newValue = value;
-
-    updated = true;
-  }
-
-  @Override
-  public K getKey() {
-    return key;
-  }
-
-  @Override
-  public V getValue() {
-    if (newValue != oldValue) {
-      return newValue;
+    public MemcachedMutableEntry(K key, V oldValue) {
+        this.key = key;
+        this.oldValue = oldValue;
+        this.newValue = oldValue;
     }
 
-    return oldValue;
-  }
-
-  @Override
-  public <T> T unwrap(Class<T> clazz) {
-    if (!clazz.isAssignableFrom(getClass())) {
-      throw new IllegalArgumentException();
+    @Override
+    public boolean exists() {
+        return !removed && ((oldValue != null) || (newValue != null));
     }
 
-    return clazz.cast(this);
-  }
+    @Override
+    public void remove() {
+        removed = true;
+    }
 
-  protected boolean isRemoved() {
-    return removed;
-  }
+    @Override
+    public void setValue(V value) {
+        newValue = value;
 
-  protected boolean isUpdated() {
-    return updated;
-  }
+        updated = true;
+    }
+
+    @Override
+    public K getKey() {
+        return key;
+    }
+
+    @Override
+    public V getValue() {
+        if (newValue != oldValue) {
+            return newValue;
+        }
+
+        return oldValue;
+    }
+
+    @Override
+    public <T> T unwrap(Class<T> clazz) {
+        if (!clazz.isAssignableFrom(getClass())) {
+            throw new IllegalArgumentException();
+        }
+
+        return clazz.cast(this);
+    }
+
+    protected boolean isRemoved() {
+        return removed;
+    }
+
+    protected boolean isUpdated() {
+        return updated;
+    }
 }

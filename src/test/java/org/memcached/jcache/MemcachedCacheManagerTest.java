@@ -15,7 +15,13 @@
  */
 package org.memcached.jcache;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.net.URI;
 import java.util.ArrayList;
@@ -34,6 +40,7 @@ import javax.cache.expiry.Duration;
 import javax.cache.expiry.ModifiedExpiryPolicy;
 import javax.cache.expiry.TouchedExpiryPolicy;
 import javax.cache.spi.CachingProvider;
+
 import org.bitstrings.test.junit.runner.ClassLoaderPerTestRunner;
 import org.junit.After;
 import org.junit.Before;
@@ -41,404 +48,401 @@ import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+@SuppressWarnings({ "unused", "unchecked", "rawtypes" })
 @RunWith(ClassLoaderPerTestRunner.class)
 public class MemcachedCacheManagerTest {
-  private CachingProvider cachingProvider;
+    private CachingProvider cachingProvider;
 
-  @Before
-  public void init() {
-    cachingProvider = Caching.getCachingProvider(MemcachedCachingProvider.class.getName());
-    assertNotNull(cachingProvider);
-  }
-
-  @After
-  public void close() {
-    cachingProvider.close();
-
-    cachingProvider = null;
-  }
-
-  @Test
-  public void testCacheManager() throws Exception {
-    CacheManager cacheManager = cachingProvider.getCacheManager();
-
-    assertEquals(cacheManager, cachingProvider.getCacheManager());
-
-    cacheManager.close();
-
-    assertTrue(cacheManager.isClosed());
-  }
-
-  @Test
-  public void testCacheManagerWithCustomClassLoader() throws Exception {
-    CacheManager cacheManager1 = cachingProvider.getCacheManager();
-    CacheManager cacheManager2 =
-        cachingProvider.getCacheManager(null, ClassLoader.getSystemClassLoader());
-
-    assertNotNull(cacheManager1);
-    assertNotNull(cacheManager2);
-
-    assertNotEquals(cacheManager1, cacheManager2);
-
-    cacheManager1.close();
-    cacheManager2.close();
-
-    assertTrue(cacheManager1.isClosed());
-    assertTrue(cacheManager2.isClosed());
-  }
-
-  @Test
-  public void testCacheManagerWithCustomProperties() throws Exception {
-    Properties properties = new Properties();
-
-    properties.setProperty("concurrencyLevel", "1");
-    properties.setProperty("initialCapacity", "16");
-
-    CacheManager cacheManager1 = cachingProvider.getCacheManager();
-    CacheManager cacheManager2 = cachingProvider.getCacheManager(null, null, properties);
-
-    assertNotNull(cacheManager1);
-    assertNotNull(cacheManager2);
-
-    // properties do not form part of the identity of the CacheManager
-    assertEquals(cacheManager1, cacheManager2);
-
-    cacheManager1.close();
-    cacheManager2.close();
-
-    assertTrue(cacheManager1.isClosed());
-    assertTrue(cacheManager2.isClosed());
-  }
-
-  @Test
-  public void testCacheManagerWithDefaultProperties() throws Exception {
-    CacheManager cacheManager = cachingProvider.getCacheManager();
-
-    assertNotNull(cacheManager);
-
-    MutableConfiguration<Long, String> configuration =
-        new MutableConfiguration<Long, String>()
-              .setStoreByValue(false)
-              .setExpiryPolicyFactory(CreatedExpiryPolicy.factoryOf(new Duration(TimeUnit.SECONDS, 10)));
-
-    Cache<Long, String> cache = cacheManager.createCache("maximumSizeCacheTest", configuration);
-
-    Properties properties = cacheManager.getProperties();
-    int port = 11211;
-    properties.setProperty("maximumSizeCacheTest.servers", "127.0.0.1:" + String.valueOf(port));
-    long maximumSize = Long.valueOf(properties.getProperty("maximumSize"));
-    assertNotEquals(0, maximumSize);
-
-    for (long l = 1; l <= (maximumSize * 10); l++) {
-      cache.put(l, "VALUE-" + l);
+    @Before
+    public void init() {
+        cachingProvider = Caching.getCachingProvider(MemcachedCachingProvider.class.getName());
+        assertNotNull(cachingProvider);
     }
 
-    cacheManager.close();
-  }
-  /*
-      @Test(expected = IllegalArgumentException.class)
-      public void testCacheManagerWithCustomInvalidProperties() throws Exception {
+    @After
+    public void close() {
+        cachingProvider.close();
+
+        cachingProvider = null;
+    }
+
+    @Test
+    public void testCacheManager() throws Exception {
+        CacheManager cacheManager = cachingProvider.getCacheManager();
+
+        assertEquals(cacheManager, cachingProvider.getCacheManager());
+
+        cacheManager.close();
+
+        assertTrue(cacheManager.isClosed());
+    }
+
+    @Test
+    public void testCacheManagerWithCustomClassLoader() throws Exception {
+        CacheManager cacheManager1 = cachingProvider.getCacheManager();
+        CacheManager cacheManager2 = cachingProvider.getCacheManager(null, ClassLoader.getSystemClassLoader());
+
+        assertNotNull(cacheManager1);
+        assertNotNull(cacheManager2);
+
+        assertNotEquals(cacheManager1, cacheManager2);
+
+        cacheManager1.close();
+        cacheManager2.close();
+
+        assertTrue(cacheManager1.isClosed());
+        assertTrue(cacheManager2.isClosed());
+    }
+
+    @Test
+    public void testCacheManagerWithCustomProperties() throws Exception {
         Properties properties = new Properties();
 
-        properties.setProperty("unknownProperty", "true");
+        properties.setProperty("concurrencyLevel", "1");
+        properties.setProperty("initialCapacity", "16");
 
-        try (CacheManager cacheManager = cachingProvider.getCacheManager(null, null, properties); ) {
-          assertNotNull(cacheManager);
+        CacheManager cacheManager1 = cachingProvider.getCacheManager();
+        CacheManager cacheManager2 = cachingProvider.getCacheManager(null, null, properties);
 
-          MutableConfiguration configuration = new MutableConfiguration();
+        assertNotNull(cacheManager1);
+        assertNotNull(cacheManager2);
 
-          configuration.setStoreByValue(false);
+        // properties do not form part of the identity of the CacheManager
+        assertEquals(cacheManager1, cacheManager2);
 
-          cacheManager.createCache("test", configuration);
+        cacheManager1.close();
+        cacheManager2.close();
+
+        assertTrue(cacheManager1.isClosed());
+        assertTrue(cacheManager2.isClosed());
+    }
+
+    @Test
+    public void testCacheManagerWithDefaultProperties() throws Exception {
+        CacheManager cacheManager = cachingProvider.getCacheManager();
+
+        assertNotNull(cacheManager);
+
+        MutableConfiguration<Long, String> configuration = new MutableConfiguration<Long, String>()
+            .setStoreByValue(false)
+            .setExpiryPolicyFactory(CreatedExpiryPolicy.factoryOf(new Duration(TimeUnit.SECONDS, 10)));
+
+        Cache<Long, String> cache = cacheManager.createCache("maximumSizeCacheTest", configuration);
+
+        Properties properties = cacheManager.getProperties();
+        int port = 11211;
+        properties.setProperty("maximumSizeCacheTest.servers", "127.0.0.1:" + String.valueOf(port));
+        long maximumSize = Long.valueOf(properties.getProperty("maximumSize"));
+        assertNotEquals(0, maximumSize);
+
+        for (long l = 1; l <= (maximumSize * 10); l++) {
+            cache.put(l, "VALUE-" + l);
         }
-      }
-  */
-  @Test
-  public void testCacheManagerWithCustomClassLoaderAndProperties() throws Exception {
-    Properties properties = new Properties();
 
-    properties.setProperty("concurrencyLevel", "1");
-    properties.setProperty("initialCapacity", "16");
-
-    CacheManager cacheManager1 = cachingProvider.getCacheManager();
-    CacheManager cacheManager2 =
-        cachingProvider.getCacheManager(null, ClassLoader.getSystemClassLoader(), properties);
-
-    assertNotNull(cacheManager1);
-    assertNotNull(cacheManager2);
-
-    assertNotEquals(cacheManager1, cacheManager2);
-
-    cacheManager1.close();
-    cacheManager2.close();
-
-    assertTrue(cacheManager1.isClosed());
-    assertTrue(cacheManager2.isClosed());
-  }
-
-  @Test(expected = IllegalStateException.class)
-  public void testClosedCacheManager() throws Exception {
-    CacheManager cacheManager = cachingProvider.getCacheManager();
-
-    assertNotNull(cacheManager);
-
-    cacheManager.close();
-
-    cacheManager.getCacheNames();
-  }
-
-  @Test
-  public void testGetCacheWithTypes() {
-    CacheManager cacheManager = cachingProvider.getCacheManager();
-
-    MutableConfiguration<Number, Number> configuration = new MutableConfiguration<>();
-
-    configuration.setStoreByValue(false);
-    configuration.setTypes(Number.class, Number.class);
-
-    cacheManager.createCache("cache", configuration);
-
-    Cache<Integer, Long> cache = cacheManager.getCache("cache", Integer.class, Long.class);
-
-    assertNotNull(cache);
-  }
-
-  @Test(expected = IllegalArgumentException.class)
-  public void testGetCacheWithInvalidTypes() {
-    CacheManager cacheManager = cachingProvider.getCacheManager();
-
-    MutableConfiguration<Number, Number> configuration = new MutableConfiguration<>();
-
-    configuration.setStoreByValue(false);
-    configuration.setTypes(Number.class, Number.class);
-
-    cacheManager.createCache("cache", configuration);
-
-    Cache<String, String> cache = cacheManager.getCache("cache", String.class, String.class);
-
-    assertNotNull(cache);
-  }
-
-  @Test(expected = UnsupportedOperationException.class)
-  public void testCreateStoryByValueCache() {
-    CacheManager cacheManager = cachingProvider.getCacheManager();
-
-    MutableConfiguration<Number, Number> configuration = new MutableConfiguration<>();
-
-    configuration.setStoreByValue(true);
-
-    cacheManager.createCache("cache", configuration);
-  }
-
-  @Test(expected = IllegalArgumentException.class)
-  public void testCreateReadThroughCacheWithInvalidConfiguration() {
-    CacheManager cacheManager = cachingProvider.getCacheManager();
-
-    MutableConfiguration<Number, Number> configuration = new MutableConfiguration<>();
-
-    configuration.setStoreByValue(false);
-    configuration.setReadThrough(true);
-
-    cacheManager.createCache("cache", configuration);
-  }
-
-  @Test(expected = UnsupportedOperationException.class)
-  public void testCreateWriteThroughCacheWithInvalidConfiguration() {
-    CacheManager cacheManager = cachingProvider.getCacheManager();
-
-    MutableConfiguration<Number, Number> configuration = new MutableConfiguration<>();
-
-    configuration.setStoreByValue(false);
-    configuration.setWriteThrough(true);
-
-    cacheManager.createCache("cache", configuration);
-  }
-
-  @Ignore
-  @Test(expected = UnsupportedOperationException.class)
-  public void testCreateCacheWithUnsupportedAccessedExpiryPolicy() {
-    CacheManager cacheManager = cachingProvider.getCacheManager();
-
-    MutableConfiguration<Number, Number> configuration = new MutableConfiguration<>();
-
-    configuration.setStoreByValue(false);
-    configuration.setExpiryPolicyFactory(AccessedExpiryPolicy.factoryOf(Duration.ZERO));
-
-    cacheManager.createCache("cache", configuration);
-  }
-
-  @Ignore
-  @Test(expected = UnsupportedOperationException.class)
-  public void testCreateCacheWithUnsupportedCreatedExpiryPolicy() {
-    CacheManager cacheManager = cachingProvider.getCacheManager();
-
-    MutableConfiguration<Number, Number> configuration = new MutableConfiguration<>();
-
-    configuration.setStoreByValue(false);
-    configuration.setExpiryPolicyFactory(CreatedExpiryPolicy.factoryOf(Duration.ZERO));
-
-    cacheManager.createCache("cache", configuration);
-  }
-
-  @Test
-  public void testCreateCacheWithModifiedExpiryPolicy() {
-    CacheManager cacheManager = cachingProvider.getCacheManager();
-
-    MutableConfiguration<Number, Number> configuration = new MutableConfiguration<>();
-
-    configuration.setStoreByValue(false);
-    configuration.setExpiryPolicyFactory(ModifiedExpiryPolicy.factoryOf(Duration.ONE_DAY));
-
-    Cache cache = cacheManager.createCache("cache", configuration);
-
-    CompleteConfiguration actualConfiguration =
-        (CompleteConfiguration) cache.getConfiguration(CompleteConfiguration.class);
-
-    assertEquals(
-        ModifiedExpiryPolicy.factoryOf(Duration.ONE_DAY),
-        actualConfiguration.getExpiryPolicyFactory());
-  }
-
-  @Test
-  public void testCreateCacheWithTouchedExpiryPolicy() {
-    CacheManager cacheManager = cachingProvider.getCacheManager();
-
-    MutableConfiguration<Number, Number> configuration = new MutableConfiguration<>();
-
-    configuration.setStoreByValue(false);
-    configuration.setExpiryPolicyFactory(TouchedExpiryPolicy.factoryOf(Duration.ONE_MINUTE));
-
-    Cache cache = cacheManager.createCache("cache", configuration);
-
-    CompleteConfiguration actualConfiguration =
-        (CompleteConfiguration) cache.getConfiguration(CompleteConfiguration.class);
-
-    assertEquals(
-        TouchedExpiryPolicy.factoryOf(Duration.ONE_MINUTE),
-        actualConfiguration.getExpiryPolicyFactory());
-  }
-
-  @Test // org.jsr107.tck.CacheManagerTest.testReuseCacheManager
-  public void testReuseCacheManager() throws Exception {
-    CachingProvider provider = Caching.getCachingProvider();
-    URI uri = provider.getDefaultURI();
-
-    CacheManager cacheManager = provider.getCacheManager(uri, provider.getDefaultClassLoader());
-    assertFalse(cacheManager.isClosed());
-    cacheManager.close();
-    assertTrue(cacheManager.isClosed());
-
-    try {
-      cacheManager.createCache("Dog", null);
-      fail();
-    } catch (IllegalStateException e) {
-      //expected
+        cacheManager.close();
     }
 
-    CacheManager otherCacheManager =
-        provider.getCacheManager(uri, provider.getDefaultClassLoader());
-    assertFalse(otherCacheManager.isClosed());
+    /*
+     * @Test(expected = IllegalArgumentException.class) public void testCacheManagerWithCustomInvalidProperties() throws
+     * Exception { Properties properties = new Properties();
+     *
+     * properties.setProperty("unknownProperty", "true");
+     *
+     * try (CacheManager cacheManager = cachingProvider.getCacheManager(null, null, properties); ) {
+     * assertNotNull(cacheManager);
+     *
+     * MutableConfiguration configuration = new MutableConfiguration();
+     *
+     * configuration.setStoreByValue(false);
+     *
+     * cacheManager.createCache("test", configuration); } }
+     */
+    @Test
+    public void testCacheManagerWithCustomClassLoaderAndProperties() throws Exception {
+        Properties properties = new Properties();
 
-    assertNotSame(cacheManager, otherCacheManager);
-  }
+        properties.setProperty("concurrencyLevel", "1");
+        properties.setProperty("initialCapacity", "16");
 
-  @Test // org.jsr107.tck.CacheManagerTest.getCacheManager_nonNullProperties
-  public void getCacheManagerWithNonNullProperties() {
-    // see https://github.com/jsr107/jsr107tck/issues/102
+        CacheManager cacheManager1 = cachingProvider.getCacheManager();
+        CacheManager cacheManager2 = cachingProvider.getCacheManager(null, ClassLoader.getSystemClassLoader(),
+                properties);
 
-    // make sure existing cache managers are closed and the non empty properties get picked up
-    try {
-      Caching.getCachingProvider().close();
-    } catch (CacheException ignore) {
-      // ignore exception which may happen if the provider is not active
+        assertNotNull(cacheManager1);
+        assertNotNull(cacheManager2);
+
+        assertNotEquals(cacheManager1, cacheManager2);
+
+        cacheManager1.close();
+        cacheManager2.close();
+
+        assertTrue(cacheManager1.isClosed());
+        assertTrue(cacheManager2.isClosed());
     }
 
-    CachingProvider provider = Caching.getCachingProvider();
+    @Test(expected = IllegalStateException.class)
+    public void testClosedCacheManager() throws Exception {
+        CacheManager cacheManager = cachingProvider.getCacheManager();
 
-    Properties properties = new Properties();
-    properties.put("dummy.com", "goofy");
+        assertNotNull(cacheManager);
 
-    provider.getCacheManager(
-        provider.getDefaultURI(), provider.getDefaultClassLoader(), properties);
-    CacheManager manager = provider.getCacheManager();
+        cacheManager.close();
 
-    assertEquals(properties, manager.getProperties());
-  }
-
-  @Test // org.jsr107.tck.CacheManagerTest.getCaches_MutateCacheManager
-  public void getCachesAndMutateCacheManager() {
-    CacheManager cacheManager = cachingProvider.getCacheManager();
-    int port = 11211;
-    Properties properties = cachingProvider.getDefaultProperties();
-    properties.setProperty("c1.servers", "127.0.0.1:" + String.valueOf(port));
-    properties.setProperty("c2.servers", "127.0.0.1:" + String.valueOf(port));
-    properties.setProperty("c3.servers", "127.0.0.1:" + String.valueOf(port));
-
-    MutableConfiguration configuration = new MutableConfiguration();
-    configuration.setStoreByValue(false);
-
-    String removeName = "c2";
-    ArrayList<String> cacheNames1 = new ArrayList<>();
-    cacheManager.createCache("c1", configuration);
-    Cache c1 = cacheManager.getCache("c1");
-    cacheNames1.add(c1.getName());
-    cacheManager.createCache(removeName, configuration);
-    cacheManager.createCache("c3", configuration);
-    Cache c3 = cacheManager.getCache("c3");
-    cacheNames1.add(c3.getName());
-
-    Iterable<String> cacheNames;
-    int size;
-
-    cacheNames = cacheManager.getCacheNames();
-    size = 0;
-
-    for (String cacheName : cacheNames) {
-      size++;
+        cacheManager.getCacheNames();
     }
 
-    assertEquals(3, size);
+    @Test
+    public void testGetCacheWithTypes() {
+        CacheManager cacheManager = cachingProvider.getCacheManager();
 
-    cacheManager.destroyCache(removeName);
-    size = 0;
+        MutableConfiguration<Number, Number> configuration = new MutableConfiguration<>();
 
-    for (String cacheName : cacheNames) {
-      size++;
+        configuration.setStoreByValue(false);
+        configuration.setTypes(Number.class, Number.class);
+
+        cacheManager.createCache("cache", configuration);
+
+        Cache<Integer, Long> cache = cacheManager.getCache("cache", Integer.class, Long.class);
+
+        assertNotNull(cache);
     }
 
-    assertEquals(3, size);
+    @Test(expected = IllegalArgumentException.class)
+    public void testGetCacheWithInvalidTypes() {
+        CacheManager cacheManager = cachingProvider.getCacheManager();
 
-    cacheNames = cacheManager.getCacheNames();
-    size = 0;
+        MutableConfiguration<Number, Number> configuration = new MutableConfiguration<>();
 
-    for (String cacheName : cacheNames) {
-      size++;
+        configuration.setStoreByValue(false);
+        configuration.setTypes(Number.class, Number.class);
+
+        cacheManager.createCache("cache", configuration);
+
+        Cache<String, String> cache = cacheManager.getCache("cache", String.class, String.class);
+
+        assertNotNull(cache);
     }
 
-    assertEquals(2, size);
+    @Test(expected = UnsupportedOperationException.class)
+    public void testCreateStoryByValueCache() {
+        CacheManager cacheManager = cachingProvider.getCacheManager();
 
-    ArrayList<String> collection2 = new ArrayList<>();
+        MutableConfiguration<Number, Number> configuration = new MutableConfiguration<>();
 
-    for (String element : cacheNames) {
-      assertTrue(cacheNames1.contains(element));
-      collection2.add(element);
+        configuration.setStoreByValue(true);
+
+        cacheManager.createCache("cache", configuration);
     }
 
-    assertEquals(cacheNames1.size(), collection2.size());
+    @Test(expected = IllegalArgumentException.class)
+    public void testCreateReadThroughCacheWithInvalidConfiguration() {
+        CacheManager cacheManager = cachingProvider.getCacheManager();
 
-    for (String element : cacheNames1) {
-      assertTrue(collection2.contains(element));
+        MutableConfiguration<Number, Number> configuration = new MutableConfiguration<>();
+
+        configuration.setStoreByValue(false);
+        configuration.setReadThrough(true);
+
+        cacheManager.createCache("cache", configuration);
     }
-  }
 
-  @Test(
-    expected = IllegalArgumentException.class
-  ) // org.jsr107.tck.CacheManagerTest.unwrapThrowsInvalidArgument
-  public void unwrapThrowsInvalidArgument() {
-    final Class ALWAYS_INVALID_UNWRAP_CLASS = Exception.class;
+    @Test(expected = UnsupportedOperationException.class)
+    public void testCreateWriteThroughCacheWithInvalidConfiguration() {
+        CacheManager cacheManager = cachingProvider.getCacheManager();
 
-    cachingProvider.getCacheManager().unwrap(Exception.class);
+        MutableConfiguration<Number, Number> configuration = new MutableConfiguration<>();
 
-    fail();
-  }
+        configuration.setStoreByValue(false);
+        configuration.setWriteThrough(true);
+
+        cacheManager.createCache("cache", configuration);
+    }
+
+    @Ignore
+    @Test(expected = UnsupportedOperationException.class)
+    public void testCreateCacheWithUnsupportedAccessedExpiryPolicy() {
+        CacheManager cacheManager = cachingProvider.getCacheManager();
+
+        MutableConfiguration<Number, Number> configuration = new MutableConfiguration<>();
+
+        configuration.setStoreByValue(false);
+        configuration.setExpiryPolicyFactory(AccessedExpiryPolicy.factoryOf(Duration.ZERO));
+
+        cacheManager.createCache("cache", configuration);
+    }
+
+    @Ignore
+    @Test(expected = UnsupportedOperationException.class)
+    public void testCreateCacheWithUnsupportedCreatedExpiryPolicy() {
+        CacheManager cacheManager = cachingProvider.getCacheManager();
+
+        MutableConfiguration<Number, Number> configuration = new MutableConfiguration<>();
+
+        configuration.setStoreByValue(false);
+        configuration.setExpiryPolicyFactory(CreatedExpiryPolicy.factoryOf(Duration.ZERO));
+
+        cacheManager.createCache("cache", configuration);
+    }
+
+    @Test
+    public void testCreateCacheWithModifiedExpiryPolicy() {
+        CacheManager cacheManager = cachingProvider.getCacheManager();
+
+        MutableConfiguration<Number, Number> configuration = new MutableConfiguration<>();
+
+        configuration.setStoreByValue(false);
+        configuration.setExpiryPolicyFactory(ModifiedExpiryPolicy.factoryOf(Duration.ONE_DAY));
+
+        Cache cache = cacheManager.createCache("cache", configuration);
+
+        CompleteConfiguration actualConfiguration =
+                (CompleteConfiguration) cache.getConfiguration(CompleteConfiguration.class);
+
+        assertEquals(
+                ModifiedExpiryPolicy.factoryOf(Duration.ONE_DAY),
+                actualConfiguration.getExpiryPolicyFactory());
+    }
+
+    @Test
+    public void testCreateCacheWithTouchedExpiryPolicy() {
+        CacheManager cacheManager = cachingProvider.getCacheManager();
+
+        MutableConfiguration<Number, Number> configuration = new MutableConfiguration<>();
+
+        configuration.setStoreByValue(false);
+        configuration.setExpiryPolicyFactory(TouchedExpiryPolicy.factoryOf(Duration.ONE_MINUTE));
+
+        Cache cache = cacheManager.createCache("cache", configuration);
+
+        CompleteConfiguration actualConfiguration =
+                (CompleteConfiguration) cache.getConfiguration(CompleteConfiguration.class);
+
+        assertEquals(
+                TouchedExpiryPolicy.factoryOf(Duration.ONE_MINUTE),
+                actualConfiguration.getExpiryPolicyFactory());
+    }
+
+    @Test // org.jsr107.tck.CacheManagerTest.testReuseCacheManager
+    public void testReuseCacheManager() throws Exception {
+        CachingProvider provider = Caching.getCachingProvider();
+        URI uri = provider.getDefaultURI();
+
+        CacheManager cacheManager = provider.getCacheManager(uri, provider.getDefaultClassLoader());
+        assertFalse(cacheManager.isClosed());
+        cacheManager.close();
+        assertTrue(cacheManager.isClosed());
+
+        try {
+            cacheManager.createCache("Dog", null);
+            fail();
+        }
+        catch (IllegalStateException e) {
+            // expected
+        }
+
+        CacheManager otherCacheManager = provider.getCacheManager(uri, provider.getDefaultClassLoader());
+        assertFalse(otherCacheManager.isClosed());
+
+        assertNotSame(cacheManager, otherCacheManager);
+    }
+
+    @Test // org.jsr107.tck.CacheManagerTest.getCacheManager_nonNullProperties
+    public void getCacheManagerWithNonNullProperties() {
+        // see https://github.com/jsr107/jsr107tck/issues/102
+
+        // make sure existing cache managers are closed and the non empty properties get picked up
+        try {
+            Caching.getCachingProvider().close();
+        }
+        catch (CacheException ignore) {
+            // ignore exception which may happen if the provider is not active
+        }
+
+        CachingProvider provider = Caching.getCachingProvider();
+
+        Properties properties = new Properties();
+        properties.put("dummy.com", "goofy");
+
+        provider.getCacheManager(
+                provider.getDefaultURI(), provider.getDefaultClassLoader(), properties);
+        CacheManager manager = provider.getCacheManager();
+
+        assertEquals(properties, manager.getProperties());
+    }
+
+    @Test // org.jsr107.tck.CacheManagerTest.getCaches_MutateCacheManager
+    public void getCachesAndMutateCacheManager() {
+        CacheManager cacheManager = cachingProvider.getCacheManager();
+        int port = 11211;
+        Properties properties = cachingProvider.getDefaultProperties();
+        properties.setProperty("c1.servers", "127.0.0.1:" + String.valueOf(port));
+        properties.setProperty("c2.servers", "127.0.0.1:" + String.valueOf(port));
+        properties.setProperty("c3.servers", "127.0.0.1:" + String.valueOf(port));
+
+        MutableConfiguration configuration = new MutableConfiguration();
+        configuration.setStoreByValue(false);
+
+        String removeName = "c2";
+        ArrayList<String> cacheNames1 = new ArrayList<>();
+        cacheManager.createCache("c1", configuration);
+        Cache c1 = cacheManager.getCache("c1");
+        cacheNames1.add(c1.getName());
+        cacheManager.createCache(removeName, configuration);
+        cacheManager.createCache("c3", configuration);
+        Cache c3 = cacheManager.getCache("c3");
+        cacheNames1.add(c3.getName());
+
+        Iterable<String> cacheNames;
+        int size;
+
+        cacheNames = cacheManager.getCacheNames();
+        size = 0;
+
+        for (String cacheName : cacheNames) {
+            size++;
+        }
+
+        assertEquals(3, size);
+
+        cacheManager.destroyCache(removeName);
+        size = 0;
+
+        for (String cacheName : cacheNames) {
+            size++;
+        }
+
+        assertEquals(3, size);
+
+        cacheNames = cacheManager.getCacheNames();
+        size = 0;
+
+        for (String cacheName : cacheNames) {
+            size++;
+        }
+
+        assertEquals(2, size);
+
+        ArrayList<String> collection2 = new ArrayList<>();
+
+        for (String element : cacheNames) {
+            assertTrue(cacheNames1.contains(element));
+            collection2.add(element);
+        }
+
+        assertEquals(cacheNames1.size(), collection2.size());
+
+        for (String element : cacheNames1) {
+            assertTrue(collection2.contains(element));
+        }
+    }
+
+    @Test(expected = IllegalArgumentException.class) // org.jsr107.tck.CacheManagerTest.unwrapThrowsInvalidArgument
+    public void unwrapThrowsInvalidArgument() {
+        @SuppressWarnings("unused")
+        final Class ALWAYS_INVALID_UNWRAP_CLASS = Exception.class;
+
+        cachingProvider.getCacheManager().unwrap(Exception.class);
+
+        fail();
+    }
 }

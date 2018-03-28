@@ -18,15 +18,15 @@ package org.memcached.jcache;
 import javax.cache.processor.EntryProcessorException;
 
 public class MemcachedEntryProcessorResult<T>
-    implements javax.cache.processor.EntryProcessorResult<T> {
-  private final T t;
+        implements javax.cache.processor.EntryProcessorResult<T> {
+    private final T t;
 
-  public MemcachedEntryProcessorResult(T t) {
-    this.t = t;
-  }
+    public MemcachedEntryProcessorResult(T t) {
+        this.t = t;
+    }
 
-  @Override
-  public T get() throws EntryProcessorException {
-    return t;
-  }
+    @Override
+    public T get() throws EntryProcessorException {
+        return t;
+    }
 }

@@ -20,13 +20,14 @@ import org.junit.runners.Suite;
 
 @RunWith(Suite.class)
 @Suite.SuiteClasses({
-  MemcachedCachingProviderTest.class,
-  MemcachedCacheManagerTest.class,
-  MemcachedCacheTest.class,
-  MemcachedCacheEventTest.class,
-  MemcachedCacheLoaderTest.class,
-  MemcachedCacheMXBeanTest.class,
-  MemcachedCacheStatisticsMXBeanTest.class,
-  MemcachedCacheConcurrentTest.class
+        MemcachedCachingProviderTest.class,
+        MemcachedCacheManagerTest.class,
+        MemcachedCacheTest.class,
+        MemcachedCacheEventTest.class,
+        MemcachedCacheLoaderTest.class,
+        MemcachedCacheMXBeanTest.class,
+        MemcachedCacheStatisticsMXBeanTest.class,
+        MemcachedCacheConcurrentTest.class
 })
-public class TestSuite {}
+public class TestSuite {
+}

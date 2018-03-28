@@ -20,49 +20,49 @@ import javax.cache.event.EventType;
 
 public class MemcachedCacheEntryEvent<K, V> extends javax.cache.event.CacheEntryEvent<K, V> {
 
-  private static final long serialVersionUID = 4761272981003897488L;
+    private static final long serialVersionUID = 4761272981003897488L;
 
-  private final V old;
-  private final K key;
-  private final V value;
+    private final V old;
+    private final K key;
+    private final V value;
 
-  public MemcachedCacheEntryEvent(
-      final Cache<K, V> source,
-      final EventType eventType,
-      final V old,
-      final K key,
-      final V value) {
-    super(source, eventType);
-    this.old = old;
-    this.key = key;
-    this.value = value;
-  }
-
-  @Override
-  public V getOldValue() {
-    return old;
-  }
-
-  @Override
-  public boolean isOldValueAvailable() {
-    return old != null;
-  }
-
-  @Override
-  public K getKey() {
-    return key;
-  }
-
-  @Override
-  public V getValue() {
-    return value;
-  }
-
-  @Override
-  public <T> T unwrap(final Class<T> clazz) {
-    if (clazz.isInstance(this)) {
-      return clazz.cast(this);
+    public MemcachedCacheEntryEvent(
+            final Cache<K, V> source,
+            final EventType eventType,
+            final V old,
+            final K key,
+            final V value) {
+        super(source, eventType);
+        this.old = old;
+        this.key = key;
+        this.value = value;
     }
-    throw new IllegalArgumentException(clazz.getName() + " not supported in unwrap");
-  }
+
+    @Override
+    public V getOldValue() {
+        return old;
+    }
+
+    @Override
+    public boolean isOldValueAvailable() {
+        return old != null;
+    }
+
+    @Override
+    public K getKey() {
+        return key;
+    }
+
+    @Override
+    public V getValue() {
+        return value;
+    }
+
+    @Override
+    public <T> T unwrap(final Class<T> clazz) {
+        if (clazz.isInstance(this)) {
+            return clazz.cast(this);
+        }
+        throw new IllegalArgumentException(clazz.getName() + " not supported in unwrap");
+    }
 }

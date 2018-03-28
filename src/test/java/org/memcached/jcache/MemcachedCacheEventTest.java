@@ -15,8 +15,8 @@
  */
 package org.memcached.jcache;
 
-import static java.util.concurrent.TimeUnit.*;
-import static org.junit.Assert.*;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static org.junit.Assert.assertEquals;
 
 import javax.cache.Cache;
 import javax.cache.CacheManager;
@@ -34,149 +34,154 @@ import javax.cache.event.CacheEntryUpdatedListener;
 import javax.cache.expiry.Duration;
 import javax.cache.expiry.ModifiedExpiryPolicy;
 import javax.cache.spi.CachingProvider;
+
 import org.junit.Test;
 
+@SuppressWarnings("serial")
 public class MemcachedCacheEventTest {
 
-  @Test
-  public void ignore() {}
+    @Test
+    public void ignore() {}
 
-  //@Test(timeout = 5000L)
-  public void testCacheEntryListener() throws InterruptedException {
-    final MyCacheEntryListener myCacheEntryListener = new MyCacheEntryListener();
-    final MyCacheEntryEventFilter myCacheEntryEventFilter = new MyCacheEntryEventFilter();
+    // @Test(timeout = 5000L)
+    public void testCacheEntryListener() throws InterruptedException {
+        final MyCacheEntryListener myCacheEntryListener = new MyCacheEntryListener();
+        final MyCacheEntryEventFilter myCacheEntryEventFilter = new MyCacheEntryEventFilter();
 
-    CacheEntryListenerConfiguration<String, Integer> listener =
-        new CacheEntryListenerConfiguration<String, Integer>() {
-          @Override
-          public Factory<CacheEntryListener<? super String, ? super Integer>>
-              getCacheEntryListenerFactory() {
-            return new Factory<CacheEntryListener<? super String, ? super Integer>>() {
-              @Override
-              public CacheEntryListener<? super String, ? super Integer> create() {
-                return myCacheEntryListener;
-              }
-            };
-          }
+        CacheEntryListenerConfiguration<String, Integer> listener = new CacheEntryListenerConfiguration<String, Integer>() {
 
-          @Override
-          public boolean isOldValueRequired() {
-            return false;
-          }
+            @Override
+            public Factory<CacheEntryListener<? super String, ? super Integer>> getCacheEntryListenerFactory() {
+                return new Factory<CacheEntryListener<? super String, ? super Integer>>() {
+                    @Override
+                    public CacheEntryListener<? super String, ? super Integer> create() {
+                        return myCacheEntryListener;
+                    }
+                };
+            }
 
-          @Override
-          public Factory<CacheEntryEventFilter<? super String, ? super Integer>>
-              getCacheEntryEventFilterFactory() {
-            return new Factory<CacheEntryEventFilter<? super String, ? super Integer>>() {
-              @Override
-              public CacheEntryEventFilter<? super String, ? super Integer> create() {
-                return myCacheEntryEventFilter;
-              }
-            };
-          }
+            @Override
+            public boolean isOldValueRequired() {
+                return false;
+            }
 
-          @Override
-          public boolean isSynchronous() {
-            return true;
-          }
+            @Override
+            public Factory<CacheEntryEventFilter<? super String, ? super Integer>> getCacheEntryEventFilterFactory() {
+                return new Factory<CacheEntryEventFilter<? super String, ? super Integer>>() {
+                    @Override
+                    public CacheEntryEventFilter<? super String, ? super Integer> create() {
+                        return myCacheEntryEventFilter;
+                    }
+                };
+            }
+
+            @Override
+            public boolean isSynchronous() {
+                return true;
+            }
         };
 
-    try (CachingProvider cachingProvider =
-        Caching.getCachingProvider(MemcachedCachingProvider.class.getName())) {
-      CacheManager cacheManager = cachingProvider.getCacheManager();
+        try (CachingProvider cachingProvider = Caching.getCachingProvider(MemcachedCachingProvider.class.getName())) {
+            CacheManager cacheManager = cachingProvider.getCacheManager();
 
-      MutableConfiguration<String, Integer> configuration = new MutableConfiguration<>();
+            MutableConfiguration<String, Integer> configuration = new MutableConfiguration<>();
 
-      configuration.setStoreByValue(false);
-      configuration.setTypes(String.class, Integer.class);
-      configuration.addCacheEntryListenerConfiguration(listener);
+            configuration.setStoreByValue(false);
+            configuration.setTypes(String.class, Integer.class);
+            configuration.addCacheEntryListenerConfiguration(listener);
 
-      Cache<String, Integer> cache1 = cacheManager.createCache("cache", configuration);
+            Cache<String, Integer> cache1 = cacheManager.createCache("cache", configuration);
 
-      cache1.put("entry", 100);
-      cache1.put("entry", 101);
-      cache1.remove("entry");
+            cache1.put("entry", 100);
+            cache1.put("entry", 101);
+            cache1.remove("entry");
 
-      assertEquals(1, myCacheEntryListener.getUpdated());
-      assertEquals(1, myCacheEntryListener.getRemoved());
+            assertEquals(1, myCacheEntryListener.getUpdated());
+            assertEquals(1, myCacheEntryListener.getRemoved());
 
-      MutableConfiguration<String, Integer> configuration2 = new MutableConfiguration<>();
+            MutableConfiguration<String, Integer> configuration2 = new MutableConfiguration<>();
 
-      configuration2.setStoreByValue(false);
-      configuration2.setTypes(String.class, Integer.class);
-      configuration2.addCacheEntryListenerConfiguration(listener);
-      configuration2.setExpiryPolicyFactory(
-          ModifiedExpiryPolicy.factoryOf(new Duration(MILLISECONDS, 1)));
+            configuration2.setStoreByValue(false);
+            configuration2.setTypes(String.class, Integer.class);
+            configuration2.addCacheEntryListenerConfiguration(listener);
+            configuration2.setExpiryPolicyFactory(
+                    ModifiedExpiryPolicy.factoryOf(new Duration(MILLISECONDS, 1)));
 
-      Cache<String, Integer> cache2 = cacheManager.createCache("cache2", configuration2);
+            Cache<String, Integer> cache2 = cacheManager.createCache("cache2", configuration2);
 
-      cache2.put("entry1", 101);
-      cache2.put("entry2", 102);
-      cache2.put("entry3", 103);
+            cache2.put("entry1", 101);
+            cache2.put("entry2", 102);
+            cache2.put("entry3", 103);
 
-      while (myCacheEntryListener.getExpired() != 3) {
-        Thread.sleep(250);
+            while (myCacheEntryListener.getExpired() != 3) {
+                Thread.sleep(250);
 
-        cache2.clear();
-      }
-    }
-  }
-
-  private static class MyCacheEntryListener
-      implements CacheEntryExpiredListener<String, Integer>,
-          CacheEntryRemovedListener<String, Integer>,
-          CacheEntryUpdatedListener<String, Integer> {
-    int expired = 0;
-    int removed = 0;
-    int updated = 0;
-
-    public int getExpired() {
-      return expired;
+                cache2.clear();
+            }
+        }
     }
 
-    public int getRemoved() {
-      return removed;
+    private static class MyCacheEntryListener
+            implements CacheEntryExpiredListener<String, Integer>,
+            CacheEntryRemovedListener<String, Integer>,
+            CacheEntryUpdatedListener<String, Integer> {
+        int expired = 0;
+        int removed = 0;
+        int updated = 0;
+
+        public int getExpired() {
+            return expired;
+        }
+
+        public int getRemoved() {
+            return removed;
+        }
+
+        public int getUpdated() {
+            return updated;
+        }
+
+        @Override
+        public void onExpired(Iterable<CacheEntryEvent<? extends String, ? extends Integer>> events)
+                throws CacheEntryListenerException {
+            expired++;
+        }
+
+        @Override
+        public void onRemoved(Iterable<CacheEntryEvent<? extends String, ? extends Integer>> events)
+                throws CacheEntryListenerException {
+            removed++;
+        }
+
+        @Override
+        public void onUpdated(Iterable<CacheEntryEvent<? extends String, ? extends Integer>> events)
+                throws CacheEntryListenerException {
+            updated++;
+        }
     }
 
-    public int getUpdated() {
-      return updated;
+    private static class MyCacheEntryEventFilter implements CacheEntryEventFilter<String, Integer> {
+        @Override
+        public boolean evaluate(CacheEntryEvent<? extends String, ? extends Integer> event)
+                throws CacheEntryListenerException {
+            switch (event.getEventType()) {
+            case EXPIRED:
+                return true;
+
+            case REMOVED:
+                return true;
+
+            case UPDATED:
+                return true;
+
+            case CREATED:
+                return false;
+
+            default:
+                break;
+            }
+
+            return false;
+        }
     }
-
-    @Override
-    public void onExpired(Iterable<CacheEntryEvent<? extends String, ? extends Integer>> events)
-        throws CacheEntryListenerException {
-      expired++;
-    }
-
-    @Override
-    public void onRemoved(Iterable<CacheEntryEvent<? extends String, ? extends Integer>> events)
-        throws CacheEntryListenerException {
-      removed++;
-    }
-
-    @Override
-    public void onUpdated(Iterable<CacheEntryEvent<? extends String, ? extends Integer>> events)
-        throws CacheEntryListenerException {
-      updated++;
-    }
-  }
-
-  private static class MyCacheEntryEventFilter implements CacheEntryEventFilter<String, Integer> {
-    @Override
-    public boolean evaluate(CacheEntryEvent<? extends String, ? extends Integer> event)
-        throws CacheEntryListenerException {
-      switch (event.getEventType()) {
-        case EXPIRED:
-          return true;
-
-        case REMOVED:
-          return true;
-
-        case UPDATED:
-          return true;
-      }
-
-      return false;
-    }
-  }
 }

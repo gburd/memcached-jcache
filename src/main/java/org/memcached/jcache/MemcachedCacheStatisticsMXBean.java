@@ -18,99 +18,99 @@ package org.memcached.jcache;
 import javax.cache.Cache;
 
 public class MemcachedCacheStatisticsMXBean
-    implements javax.cache.management.CacheStatisticsMXBean {
-  private final Statistics statistics;
+        implements javax.cache.management.CacheStatisticsMXBean {
+    private final Statistics statistics;
 
-  public MemcachedCacheStatisticsMXBean(final Statistics stats) {
-    this.statistics = stats;
-  }
-
-  @Override
-  public void clear() {
-    statistics.reset();
-  }
-
-  @Override
-  public long getCacheHits() {
-    return statistics.getHits();
-  }
-
-  @Override
-  public float getCacheHitPercentage() {
-    final long hits = getCacheHits();
-    if (hits == 0) {
-      return 1;
+    public MemcachedCacheStatisticsMXBean(final Statistics stats) {
+        this.statistics = stats;
     }
-    long gets = getCacheGets();
-    return (gets > 0) ? (float) (hits / (float) gets * 100.0) : 1;
-  }
 
-  @Override
-  public long getCacheMisses() {
-    return statistics.getMisses();
-  }
-
-  @Override
-  public float getCacheMissPercentage() {
-    final long misses = getCacheMisses();
-    if (misses == 0) {
-      return 0;
+    @Override
+    public void clear() {
+        statistics.reset();
     }
-    long gets = getCacheGets();
-    return (gets > 0) ? (float) (misses / (float) gets * 100.0) : 1;
-  }
 
-  @Override
-  public long getCacheGets() {
-    return getCacheHits() + getCacheMisses();
-  }
-
-  @Override
-  public long getCachePuts() {
-    return statistics.getPuts();
-  }
-
-  @Override
-  public long getCacheRemovals() {
-    return statistics.getRemovals();
-  }
-
-  @Override
-  public long getCacheEvictions() {
-    return statistics.getEvictions();
-  }
-
-  @Override
-  public float getAverageGetTime() {
-    return averageTime(statistics.getTimeTakenForGets());
-  }
-
-  @Override
-  public float getAveragePutTime() {
-    return averageTime(statistics.getTimeTakenForPuts());
-  }
-
-  @Override
-  public float getAverageRemoveTime() {
-    return averageTime(statistics.getTimeTakenForRemovals());
-  }
-
-  private float averageTime(final long timeTaken) {
-    final long gets = getCacheGets();
-    if (timeTaken == 0 || gets == 0) {
-      return 0;
+    @Override
+    public long getCacheHits() {
+        return statistics.getHits();
     }
-    return timeTaken / gets;
-  }
 
-  protected static String getObjectName(Cache<?, ?> c) {
-    StringBuilder builder = new StringBuilder("javax.cache:type=CacheStatistics");
+    @Override
+    public float getCacheHitPercentage() {
+        final long hits = getCacheHits();
+        if (hits == 0) {
+            return 1;
+        }
+        long gets = getCacheGets();
+        return (gets > 0) ? (float) (hits / (float) gets * 100.0) : 1;
+    }
 
-    builder
-        .append(",CacheManager=")
-        .append(c.getCacheManager().getURI().toString().replaceAll(":", "//"));
-    builder.append(",Cache=").append(c.getName());
+    @Override
+    public long getCacheMisses() {
+        return statistics.getMisses();
+    }
 
-    return builder.toString();
-  }
+    @Override
+    public float getCacheMissPercentage() {
+        final long misses = getCacheMisses();
+        if (misses == 0) {
+            return 0;
+        }
+        long gets = getCacheGets();
+        return (gets > 0) ? (float) (misses / (float) gets * 100.0) : 1;
+    }
+
+    @Override
+    public long getCacheGets() {
+        return getCacheHits() + getCacheMisses();
+    }
+
+    @Override
+    public long getCachePuts() {
+        return statistics.getPuts();
+    }
+
+    @Override
+    public long getCacheRemovals() {
+        return statistics.getRemovals();
+    }
+
+    @Override
+    public long getCacheEvictions() {
+        return statistics.getEvictions();
+    }
+
+    @Override
+    public float getAverageGetTime() {
+        return averageTime(statistics.getTimeTakenForGets());
+    }
+
+    @Override
+    public float getAveragePutTime() {
+        return averageTime(statistics.getTimeTakenForPuts());
+    }
+
+    @Override
+    public float getAverageRemoveTime() {
+        return averageTime(statistics.getTimeTakenForRemovals());
+    }
+
+    private float averageTime(final long timeTaken) {
+        final long gets = getCacheGets();
+        if (timeTaken == 0 || gets == 0) {
+            return 0;
+        }
+        return timeTaken / gets;
+    }
+
+    protected static String getObjectName(Cache<?, ?> c) {
+        StringBuilder builder = new StringBuilder("javax.cache:type=CacheStatistics");
+
+        builder
+            .append(",CacheManager=")
+            .append(c.getCacheManager().getURI().toString().replaceAll(":", "//"));
+        builder.append(",Cache=").append(c.getName());
+
+        return builder.toString();
+    }
 }

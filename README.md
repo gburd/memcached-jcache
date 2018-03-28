@@ -1,31 +1,11 @@
 memcached-jcache
 ================
 
-This is an implementation of the API and SPI from JSR-107 (aka JCache) for connecting to MemcacheD services.
+This is an implementation of the API and SPI from JSR-107 (aka JCache) for MemcacheD using the Spymemcached Java client.
 
 [![License](http://img.shields.io/:license-apache-brightgreen.svg)](http://www.apache.org/licenses/LICENSE-2.0.html)
 
 ## Usage
-
-Development snapshots are available on Sonatype Nexus repository
-
-```xml
-<repositories>
-    <repository>
-        <id>sonatype-nexus-snapshots</id>
-        <name>Sonatype Nexus Snapshots</name>
-        <url>https://oss.sonatype.org/content/repositories/snapshots</url>
-    </repository>
-</repositories>
-
-<dependencies>
-    <dependency>
-        <groupId>org.memecached</groupId>
-        <artifactId>memcached-jcache</artifactId>
-        <version>1.0.1-SNAPSHOT</version>
-    </dependency>
-</dependencies>
-```
 
 ## Example - Simple Cache
 
@@ -92,6 +72,13 @@ Cache<String, Integer> cache = cacheManager.createCache("cache", configuration);
 Integer value = cache.get("key");
 ```
 
+## Known Issues:
+
+* ExpiryPolicy - https://github.com/onshape/memcached-jcache/issues/1
+
 ## Documentation
 
 [javax.cache (JSR107 API and SPI 1.0.0 API)](http://ignite.apache.org/jcache/1.0.0/javadoc/javax/cache/package-summary.html)
+
+## Thanks!
+This code was derived by starting with a JCache provider based on Google Guava cache: https://github.com/ocafebabe/guava-jcache

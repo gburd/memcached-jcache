@@ -16,7 +16,7 @@
 package org.memcached.jcache;
 
 public interface MemcachedKeyCodec {
-  String encode(String cacheName, Object key);
+    String encode(String cacheName, Object key);
 
-  Object decode(String cacheName, String key);
+    Object decode(String cacheName, String key);
 }

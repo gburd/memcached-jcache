@@ -21,21 +21,21 @@ import org.junit.runner.Description;
 import org.junit.runners.model.Statement;
 
 public class RepeatRule implements TestRule {
-  @Override
-  public Statement apply(Statement base, Description description) {
-    Repeat repeat = description.getAnnotation(Repeat.class);
+    @Override
+    public Statement apply(Statement base, Description description) {
+        Repeat repeat = description.getAnnotation(Repeat.class);
 
-    if (repeat == null) {
-      return base;
-    }
-
-    return new Statement() {
-      @Override
-      public void evaluate() throws Throwable {
-        for (int i = 0; i < repeat.times(); i++) {
-          base.evaluate();
+        if (repeat == null) {
+            return base;
         }
-      }
-    };
-  }
+
+        return new Statement() {
+            @Override
+            public void evaluate() throws Throwable {
+                for (int i = 0; i < repeat.times(); i++) {
+                    base.evaluate();
+                }
+            }
+        };
+    }
 }

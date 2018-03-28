@@ -16,22 +16,23 @@
 package org.memcached.jcache;
 
 import java.util.Map;
+
 import javax.cache.integration.CacheLoader;
 
 public class MemcachedCacheLoader<K, V> implements javax.cache.integration.CacheLoader<K, V> {
-  private final CacheLoader<K, V> delegate;
+    private final CacheLoader<K, V> delegate;
 
-  public MemcachedCacheLoader(CacheLoader<K, V> delegate) {
-    this.delegate = delegate;
-  }
+    public MemcachedCacheLoader(CacheLoader<K, V> delegate) {
+        this.delegate = delegate;
+    }
 
-  @Override
-  public V load(K key) {
-    return delegate.load(key);
-  }
+    @Override
+    public V load(K key) {
+        return delegate.load(key);
+    }
 
-  @Override
-  public Map<K, V> loadAll(Iterable<? extends K> keys) {
-    return delegate.loadAll(keys);
-  }
+    @Override
+    public Map<K, V> loadAll(Iterable<? extends K> keys) {
+        return delegate.loadAll(keys);
+    }
 }

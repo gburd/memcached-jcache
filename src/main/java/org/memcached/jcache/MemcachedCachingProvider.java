@@ -20,198 +20,189 @@ import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+
 import javax.cache.CacheException;
 import javax.cache.CacheManager;
 import javax.cache.configuration.OptionalFeature;
+
 import net.spy.memcached.BinaryConnectionFactory;
 import net.spy.memcached.ConnectionFactory;
 import net.spy.memcached.ConnectionFactoryBuilder;
 
 public final class MemcachedCachingProvider implements javax.cache.spi.CachingProvider {
-  private static ConnectionFactoryBuilder connectionFactoryBuilder;
+    private static ConnectionFactoryBuilder connectionFactoryBuilder;
 
-  private static final URI defaultUri;
-  private static final Properties defaultProperties;
+    private static final URI defaultUri;
+    private static final Properties defaultProperties;
 
-  static {
-    URI uri = null;
-    Properties properties = new Properties();
+    static {
+        URI uri = null;
+        Properties properties = new Properties();
 
-    try {
-      URL url = MemcachedCachingProvider.class.getResource("/cachebuilderspec.properties");
+        try {
+            URL url = MemcachedCachingProvider.class.getResource("/cachebuilderspec.properties");
 
-      if (url != null) {
-        uri = url.toURI();
+            if (url != null) {
+                uri = url.toURI();
 
-        try (InputStream is = url.openStream()) {
-          properties.load(is);
-        } catch (IOException e) {
-          throw new CacheException(e);
+                try (InputStream is = url.openStream()) {
+                    properties.load(is);
+                }
+                catch (IOException e) {
+                    throw new CacheException(e);
+                }
+            }
         }
-      }
-    } catch (URISyntaxException e) {
-      throw new CacheException(e);
+        catch (URISyntaxException e) {
+            throw new CacheException(e);
+        }
+
+        defaultUri = uri;
+        defaultProperties = properties;
     }
 
-    defaultUri = uri;
-    defaultProperties = properties;
-  }
+    private final ConcurrentMap<Pair<URI, ClassLoader>, CacheManager> cacheManagers = new ConcurrentHashMap<>();
 
-  private final ConcurrentMap<Pair<URI, ClassLoader>, CacheManager> cacheManagers =
-      new ConcurrentHashMap<>();
+    public MemcachedCachingProvider() {}
 
-  public MemcachedCachingProvider() {}
-
-  public static void setConnectionFactoryBuilder(ConnectionFactoryBuilder builder) {
-    connectionFactoryBuilder = builder;
-  }
-
-  public ConnectionFactory getConnectionFactory() {
-    if (connectionFactoryBuilder != null) {
-      return connectionFactoryBuilder.build();
-    } else {
-      return new BinaryConnectionFactory();
-    }
-  }
-
-  @Override
-  public CacheManager getCacheManager(URI uri, ClassLoader classLoader, Properties properties) {
-    URI _uri = (uri != null) ? uri : getDefaultURI();
-    ClassLoader _classLoader = (classLoader != null) ? classLoader : getDefaultClassLoader();
-    Properties _properties = (properties != null) ? properties : new Properties();
-
-    CacheManager newCacheManager =
-        new MemcachedCacheManagerImpl(_uri, _classLoader, _properties, this);
-
-    CacheManager oldCacheManager =
-        cacheManagers.putIfAbsent(new Pair<>(_uri, _classLoader), newCacheManager);
-
-    if (oldCacheManager != null) {
-      return oldCacheManager;
+    public static void setConnectionFactoryBuilder(ConnectionFactoryBuilder builder) {
+        connectionFactoryBuilder = builder;
     }
 
-    return newCacheManager;
-  }
-
-  @Override
-  public ClassLoader getDefaultClassLoader() {
-    return getClass().getClassLoader();
-  }
-
-  @Override
-  public URI getDefaultURI() {
-    return defaultUri;
-  }
-
-  @Override
-  public Properties getDefaultProperties() {
-    return defaultProperties;
-  }
-
-  @Override
-  public CacheManager getCacheManager(URI uri, ClassLoader classLoader) {
-    return getCacheManager(uri, classLoader, null);
-  }
-
-  @Override
-  public CacheManager getCacheManager() {
-    return getCacheManager(getDefaultURI(), getDefaultClassLoader(), getDefaultProperties());
-  }
-
-  @Override
-  public void close() {
-    cacheManagers
-        .entrySet()
-        .parallelStream()
-        .<Map.Entry<Pair<URI, ClassLoader>, CacheManager>>forEach(
-            entry -> {
-              CacheManager cm = entry.getValue();
-              if (cm != null && !cm.isClosed()) {
-                cm.close();
-              }
-            });
-  }
-
-  @Override
-  public void close(ClassLoader classLoader) {
-    close(getDefaultURI(), classLoader);
-  }
-
-  @Override
-  public void close(URI uri, ClassLoader classLoader) {
-    CacheManager cm = cacheManagers.remove(new Pair<>(uri, classLoader));
-
-    if (cm != null && !cm.isClosed()) {
-      cm.close();
-    }
-  }
-
-  @Override
-  public boolean isSupported(OptionalFeature optionalFeature) {
-    return false;
-  }
-
-  protected void close(CacheManager cacheManager) {
-    cacheManagers.remove(new Pair<>(cacheManager.getURI(), cacheManager.getClassLoader()));
-  }
-
-  private static class Pair<L, R> {
-    private final L left;
-    private final R right;
-
-    public Pair(L left, R right) {
-      this.left = left;
-      this.right = right;
-    }
-
-    public L getLeft() {
-      return left;
-    }
-
-    public R getRight() {
-      return right;
+    public ConnectionFactory getConnectionFactory() {
+        if (connectionFactoryBuilder != null) {
+            return connectionFactoryBuilder.build();
+        } else {
+            return new BinaryConnectionFactory();
+        }
     }
 
     @Override
-    public int hashCode() {
-      int hash = 3;
+    public CacheManager getCacheManager(URI uri, ClassLoader classLoader, Properties properties) {
+        URI _uri = (uri != null) ? uri : getDefaultURI();
+        ClassLoader _classLoader = (classLoader != null) ? classLoader : getDefaultClassLoader();
+        Properties _properties = (properties != null) ? properties : new Properties();
 
-      hash = 61 * hash + Objects.hashCode(this.left);
-      hash = 61 * hash + Objects.hashCode(this.right);
+        CacheManager newCacheManager = new MemcachedCacheManagerImpl(_uri, _classLoader, _properties, this);
 
-      return hash;
+        CacheManager oldCacheManager = cacheManagers.putIfAbsent(new Pair<>(_uri, _classLoader), newCacheManager);
+
+        if (oldCacheManager != null) {
+            return oldCacheManager;
+        }
+
+        return newCacheManager;
     }
 
     @Override
-    public boolean equals(Object obj) {
-      if (this == obj) {
-        return true;
-      }
-
-      if (obj == null) {
-        return false;
-      }
-
-      if (getClass() != obj.getClass()) {
-        return false;
-      }
-
-      final Pair<?, ?> other = (Pair<?, ?>) obj;
-
-      if (!Objects.equals(this.left, other.left)) {
-        return false;
-      }
-
-      if (!Objects.equals(this.right, other.right)) {
-        return false;
-      }
-
-      return true;
+    public ClassLoader getDefaultClassLoader() {
+        return getClass().getClassLoader();
     }
-  }
+
+    @Override
+    public URI getDefaultURI() {
+        return defaultUri;
+    }
+
+    @Override
+    public Properties getDefaultProperties() {
+        return defaultProperties;
+    }
+
+    @Override
+    public CacheManager getCacheManager(URI uri, ClassLoader classLoader) {
+        return getCacheManager(uri, classLoader, null);
+    }
+
+    @Override
+    public CacheManager getCacheManager() {
+        return getCacheManager(getDefaultURI(), getDefaultClassLoader(), getDefaultProperties());
+    }
+
+    @Override
+    public void close() {
+        cacheManagers
+            .entrySet()
+            .stream().forEach(
+                    entry -> {
+                        CacheManager cm = entry.getValue();
+                        if (cm != null && !cm.isClosed()) {
+                            cm.close();
+                        }
+                    });
+    }
+
+    @Override
+    public void close(ClassLoader classLoader) {
+        close(getDefaultURI(), classLoader);
+    }
+
+    @Override
+    public void close(URI uri, ClassLoader classLoader) {
+        CacheManager cm = cacheManagers.remove(new Pair<>(uri, classLoader));
+
+        if (cm != null && !cm.isClosed()) {
+            cm.close();
+        }
+    }
+
+    @Override
+    public boolean isSupported(OptionalFeature optionalFeature) {
+        return false;
+    }
+
+    protected void close(CacheManager cacheManager) {
+        cacheManagers.remove(new Pair<>(cacheManager.getURI(), cacheManager.getClassLoader()));
+    }
+
+    private static class Pair<L, R> {
+        private final L left;
+        private final R right;
+
+        public Pair(L left, R right) {
+            this.left = left;
+            this.right = right;
+        }
+
+        @Override
+        public int hashCode() {
+            int hash = 3;
+
+            hash = 61 * hash + Objects.hashCode(this.left);
+            hash = 61 * hash + Objects.hashCode(this.right);
+
+            return hash;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+
+            if (obj == null) {
+                return false;
+            }
+
+            if (getClass() != obj.getClass()) {
+                return false;
+            }
+
+            final Pair<?, ?> other = (Pair<?, ?>) obj;
+
+            if (!Objects.equals(this.left, other.left)) {
+                return false;
+            }
+
+            if (!Objects.equals(this.right, other.right)) {
+                return false;
+            }
+
+            return true;
+        }
+    }
 }

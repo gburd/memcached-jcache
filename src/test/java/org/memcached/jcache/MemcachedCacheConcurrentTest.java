@@ -35,6 +35,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
+
 import javax.cache.Cache;
 import javax.cache.CacheManager;
 import javax.cache.Caching;
@@ -46,240 +47,211 @@ import javax.cache.integration.CacheLoaderException;
 import javax.cache.spi.CachingProvider;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
+
 import org.bitstrings.test.junit.runner.ClassLoaderPerTestRunner;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 @RunWith(ClassLoaderPerTestRunner.class)
-public class MemcachedCacheConcurrentTest { //extends AbstractMemcachedTest {
-  private static final int THREADS = 8;
-  private static final int TEST_CACHE_SIZE = 100_000;
-  private static final int MAXIMUM_CACHE_SIZE = 50_000;
+@SuppressWarnings("serial")
+public class MemcachedCacheConcurrentTest { // extends AbstractMemcachedTest {
+    private static final int THREADS = 8;
+    private static final int TEST_CACHE_SIZE = 100_000;
+    private static final int MAXIMUM_CACHE_SIZE = 50_000;
 
-  @Test(timeout = 90000L)
-  public void main() throws Exception {
-    final AtomicInteger loads = new AtomicInteger();
+    @Test(timeout = 90000L)
+    public void main() throws Exception {
+        final AtomicInteger loads = new AtomicInteger();
 
-    int port = 11211;
-    Properties properties =
-        new Properties() {
-          {
-            setProperty("maximumSize", String.valueOf(MAXIMUM_CACHE_SIZE));
-            setProperty("workerCache.servers", "127.0.0.1:" + String.valueOf(port));
-          }
+        int port = 11211;
+        Properties properties = new Properties() {
+            {
+                setProperty("maximumSize", String.valueOf(MAXIMUM_CACHE_SIZE));
+                setProperty("workerCache.servers", "127.0.0.1:" + String.valueOf(port));
+            }
         };
 
-    MutableConfiguration<KeyObject, ValueObject> configuration = new MutableConfiguration<>();
+        MutableConfiguration<KeyObject, ValueObject> configuration = new MutableConfiguration<>();
 
-    configuration.setStoreByValue(false);
-    configuration.setTypes(KeyObject.class, ValueObject.class);
-    configuration.setExpiryPolicyFactory(EternalExpiryPolicy.factoryOf());
-    configuration.setStatisticsEnabled(true);
-    configuration.setManagementEnabled(true);
-    configuration.setReadThrough(true);
-    configuration.setCacheLoaderFactory(
-        new Factory<CacheLoader<KeyObject, ValueObject>>() {
-          @Override
-          public CacheLoader<KeyObject, ValueObject> create() {
-            return new CacheLoader<KeyObject, ValueObject>() {
-              @Override
-              public ValueObject load(KeyObject key) throws CacheLoaderException {
-                loads.incrementAndGet();
+        configuration.setStoreByValue(false);
+        configuration.setTypes(KeyObject.class, ValueObject.class);
+        configuration.setExpiryPolicyFactory(EternalExpiryPolicy.factoryOf());
+        configuration.setStatisticsEnabled(true);
+        configuration.setManagementEnabled(true);
+        configuration.setReadThrough(true);
+        configuration.setCacheLoaderFactory(
+                new Factory<CacheLoader<KeyObject, ValueObject>>() {
+                    @Override
+                    public CacheLoader<KeyObject, ValueObject> create() {
+                        return new CacheLoader<KeyObject, ValueObject>() {
+                            @Override
+                            public ValueObject load(KeyObject key) throws CacheLoaderException {
+                                loads.incrementAndGet();
 
-                return new ValueObject(key.getId(), "CODE_" + key.getId(), new Date());
-              }
+                                return new ValueObject(key.getId(), "CODE_" + key.getId(), new Date());
+                            }
 
-              @Override
-              public Map<KeyObject, ValueObject> loadAll(Iterable<? extends KeyObject> keys)
-                  throws CacheLoaderException {
-                throw new UnsupportedOperationException("Not supported yet.");
-              }
-            };
-          }
-        });
+                            @Override
+                            public Map<KeyObject, ValueObject> loadAll(Iterable<? extends KeyObject> keys)
+                                    throws CacheLoaderException {
+                                throw new UnsupportedOperationException("Not supported yet.");
+                            }
+                        };
+                    }
+                });
 
-    CachingProvider cachingProvider =
-        Caching.getCachingProvider(MemcachedCachingProvider.class.getName());
+        CachingProvider cachingProvider = Caching.getCachingProvider(MemcachedCachingProvider.class.getName());
 
-    CacheManager cacheManager = cachingProvider.getCacheManager(null, null, properties);
+        CacheManager cacheManager = cachingProvider.getCacheManager(null, null, properties);
 
-    Cache<KeyObject, ValueObject> workerCache =
-        cacheManager.createCache("workerCache", configuration);
-    workerCache.clear();
+        Cache<KeyObject, ValueObject> workerCache = cacheManager.createCache("workerCache", configuration);
+        workerCache.clear();
 
-    List<Worker> workers = new ArrayList<>();
+        List<Worker> workers = new ArrayList<>();
 
-    for (int i = 0; i < THREADS; i++) {
-      workers.add(new Worker());
+        for (int i = 0; i < THREADS; i++) {
+            workers.add(new Worker());
+        }
+
+        Set<ValueObject> uniques = new HashSet<>();
+
+        ExecutorService executorService = Executors.newFixedThreadPool(THREADS);
+
+        for (Future<Collection<ValueObject>> f : executorService.invokeAll(workers)) {
+            Collection<ValueObject> values = f.get();
+
+            assertEquals(TEST_CACHE_SIZE, values.size());
+
+            uniques.addAll(values);
+        }
+
+        assertTrue(TEST_CACHE_SIZE <= loads.get());
+        assertEquals(TEST_CACHE_SIZE, uniques.size());
+
+        executorService.shutdown();
+
+        MBeanServer beanServer = ManagementFactory.getPlatformMBeanServer();
+
+        ObjectName name = new ObjectName(MemcachedCacheStatisticsMXBean.getObjectName(workerCache));
+
+        long cacheGets = (long) beanServer.getAttribute(name, "CacheGets");
+        long cacheHits = (long) beanServer.getAttribute(name, "CacheHits");
+        long cacheMisses = (long) beanServer.getAttribute(name, "CacheMisses");
+        // long cacheEvictions = (long) beanServer.getAttribute(name, "CacheEvictions"); Not supported by MemcacheD
+        float averageGetTime = (float) beanServer.getAttribute(name, "AverageGetTime");
+
+        assertEquals(8 * TEST_CACHE_SIZE, cacheGets);
+        assertEquals((THREADS * TEST_CACHE_SIZE), (cacheHits + cacheMisses));
+        // assertEquals((TEST_CACHE_SIZE - MAXIMUM_CACHE_SIZE), cacheEvictions); Not supported by MemcacheD
+        assertNotEquals(0, averageGetTime);
     }
 
-    Set<ValueObject> uniques = new HashSet<>();
+    private static class Worker implements Callable<Collection<ValueObject>> {
+        @Override
+        public Collection<ValueObject> call() throws Exception {
+            CachingProvider cachingProvider = Caching.getCachingProvider(MemcachedCachingProvider.class.getName());
 
-    ExecutorService executorService = Executors.newFixedThreadPool(THREADS);
+            CacheManager cacheManager = cachingProvider.getCacheManager();
 
-    for (Future<Collection<ValueObject>> f : executorService.invokeAll(workers)) {
-      Collection<ValueObject> values = f.get();
+            Cache<KeyObject, ValueObject> cache = cacheManager.getCache("workerCache", KeyObject.class,
+                    ValueObject.class);
 
-      assertEquals(TEST_CACHE_SIZE, values.size());
+            Set<ValueObject> values = new HashSet<>();
 
-      uniques.addAll(values);
+            for (long id = 0; id < TEST_CACHE_SIZE; id++) {
+                values.add(cache.get(new KeyObject(id)));
+            }
+
+            return values;
+        }
     }
 
-    assertTrue(TEST_CACHE_SIZE <= loads.get());
-    assertEquals(TEST_CACHE_SIZE, uniques.size());
+    private static class KeyObject {
+        private Long id;
 
-    executorService.shutdown();
+        public KeyObject(Long id) {
+            this.id = id;
+        }
 
-    MBeanServer beanServer = ManagementFactory.getPlatformMBeanServer();
+        public Long getId() {
+            return id;
+        }
 
-    ObjectName name = new ObjectName(MemcachedCacheStatisticsMXBean.getObjectName(workerCache));
+        @Override
+        public int hashCode() {
+            int hash = 7;
+            hash = 61 * hash + Objects.hashCode(this.id);
+            return hash;
+        }
 
-    long cacheGets = (long) beanServer.getAttribute(name, "CacheGets");
-    long cacheHits = (long) beanServer.getAttribute(name, "CacheHits");
-    long cacheMisses = (long) beanServer.getAttribute(name, "CacheMisses");
-    //long cacheEvictions = (long) beanServer.getAttribute(name, "CacheEvictions"); Not supported by MemcacheD
-    float averageGetTime = (float) beanServer.getAttribute(name, "AverageGetTime");
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
 
-    assertEquals(8 * TEST_CACHE_SIZE, cacheGets);
-    assertEquals((THREADS * TEST_CACHE_SIZE), (cacheHits + cacheMisses));
-    // assertEquals((TEST_CACHE_SIZE - MAXIMUM_CACHE_SIZE), cacheEvictions); Not supported by MemcacheD
-    assertNotEquals(0, averageGetTime);
-  }
+            if (obj == null) {
+                return false;
+            }
 
-  private static class Worker implements Callable<Collection<ValueObject>> {
-    @Override
-    public Collection<ValueObject> call() throws Exception {
-      CachingProvider cachingProvider =
-          Caching.getCachingProvider(MemcachedCachingProvider.class.getName());
+            if (getClass() != obj.getClass()) {
+                return false;
+            }
 
-      CacheManager cacheManager = cachingProvider.getCacheManager();
+            final KeyObject other = (KeyObject) obj;
 
-      Cache<KeyObject, ValueObject> cache =
-          cacheManager.getCache("workerCache", KeyObject.class, ValueObject.class);
+            if (!Objects.equals(this.id, other.id)) {
+                return false;
+            }
 
-      Set<ValueObject> values = new HashSet<>();
-
-      for (long id = 0; id < TEST_CACHE_SIZE; id++) {
-        values.add(cache.get(new KeyObject(id)));
-      }
-
-      return values;
-    }
-  }
-
-  private static class KeyObject {
-    private Long id;
-
-    public KeyObject(Long id) {
-      this.id = id;
+            return true;
+        }
     }
 
-    public Long getId() {
-      return id;
+    @SuppressWarnings("unused")
+    private static class ValueObject implements Serializable {
+        static final long serialVersionUID = -687991492884005033L;
+
+        private Long id;
+        private String code;
+        private Date timestamp;
+
+        public ValueObject(Long id, String code, Date timestamp) {
+            this.id = id;
+            this.code = code;
+            this.timestamp = timestamp;
+        }
+
+        @Override
+        public int hashCode() {
+            int hash = 5;
+
+            hash = 61 * hash + Objects.hashCode(this.id);
+
+            return hash;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+
+            if (obj == null) {
+                return false;
+            }
+
+            if (getClass() != obj.getClass()) {
+                return false;
+            }
+
+            final ValueObject other = (ValueObject) obj;
+
+            if (!Objects.equals(this.id, other.id)) {
+                return false;
+            }
+
+            return true;
+        }
     }
-
-    public void setId(Long id) {
-      this.id = id;
-    }
-
-    @Override
-    public int hashCode() {
-      int hash = 7;
-      hash = 61 * hash + Objects.hashCode(this.id);
-      return hash;
-    }
-
-    @Override
-    public boolean equals(Object obj) {
-      if (this == obj) {
-        return true;
-      }
-
-      if (obj == null) {
-        return false;
-      }
-
-      if (getClass() != obj.getClass()) {
-        return false;
-      }
-
-      final KeyObject other = (KeyObject) obj;
-
-      if (!Objects.equals(this.id, other.id)) {
-        return false;
-      }
-
-      return true;
-    }
-  }
-
-  private static class ValueObject implements Serializable {
-    static final long serialVersionUID = -687991492884005033L;
-
-    private Long id;
-    private String code;
-    private Date timestamp;
-
-    public ValueObject(Long id, String code, Date timestamp) {
-      this.id = id;
-      this.code = code;
-      this.timestamp = timestamp;
-    }
-
-    public Long getId() {
-      return id;
-    }
-
-    public void setId(Long id) {
-      this.id = id;
-    }
-
-    public String getCode() {
-      return code;
-    }
-
-    public void setCode(String code) {
-      this.code = code;
-    }
-
-    public Date getTimestamp() {
-      return timestamp;
-    }
-
-    public void setTimestamp(Date timestamp) {
-      this.timestamp = timestamp;
-    }
-
-    @Override
-    public int hashCode() {
-      int hash = 5;
-
-      hash = 61 * hash + Objects.hashCode(this.id);
-
-      return hash;
-    }
-
-    @Override
-    public boolean equals(Object obj) {
-      if (this == obj) {
-        return true;
-      }
-
-      if (obj == null) {
-        return false;
-      }
-
-      if (getClass() != obj.getClass()) {
-        return false;
-      }
-
-      final ValueObject other = (ValueObject) obj;
-
-      if (!Objects.equals(this.id, other.id)) {
-        return false;
-      }
-
-      return true;
-    }
-  }
 }

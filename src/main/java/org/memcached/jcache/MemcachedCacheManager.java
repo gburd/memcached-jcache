@@ -16,12 +16,13 @@
 package org.memcached.jcache;
 
 import javax.cache.CacheManager;
+
 import net.spy.memcached.MemcachedClient;
 
 public interface MemcachedCacheManager extends CacheManager {
 
-  public MemcachedClient getMemcachedClient(String cacheName);
+    public MemcachedClient getMemcachedClient(String cacheName);
 
-  public void closeMemcachedClientConnection(String cacheName);
+    public void closeMemcachedClientConnection(String cacheName);
 
 }
