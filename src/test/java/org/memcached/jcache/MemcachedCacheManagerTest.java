@@ -438,7 +438,6 @@ public class MemcachedCacheManagerTest {
 
     @Test(expected = IllegalArgumentException.class) // org.jsr107.tck.CacheManagerTest.unwrapThrowsInvalidArgument
     public void unwrapThrowsInvalidArgument() {
-        @SuppressWarnings("unused")
         final Class ALWAYS_INVALID_UNWRAP_CLASS = Exception.class;
 
         cachingProvider.getCacheManager().unwrap(Exception.class);
