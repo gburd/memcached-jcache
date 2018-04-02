@@ -69,7 +69,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
     private final MemcachedCacheManagerImpl cacheManager;
     private final Statistics statistics = new Statistics();
     private final MemcachedCacheLoader cacheLoader;
-    private final AtomicBoolean closed = new AtomicBoolean();
+    private final AtomicBoolean closed;
     private final Transcoder<V> transcoder;
     private MemcachedKeyCodec keyCodec = null;
 
@@ -119,7 +119,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
         // connection to MemcacheD. This is different from the client being null or the client
         // not able to connect to MemcacheD, in those cases we will keep trying to reconnect in
         // hopes that the failure is transient.
-        closed.set(false);
+        closed = new AtomicBoolean(false);
     }
 
     private String property(
@@ -145,7 +145,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
                     | InvocationTargetException
                     | NoSuchMethodException
                     | ClassNotFoundException e) {
-                e.printStackTrace();
+                throw new IllegalArgumentException(e);
             }
         }
         if (keyCodec == null) {
@@ -211,7 +211,16 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
         final boolean statisticsEnabled = configuration.isStatisticsEnabled();
         final Timer timer = Timer.start(!statisticsEnabled);
         MemcachedClient client = checkState();
-        V value = client.<V> get(encodedKeyFor(key), transcoder);
+
+        V value = asCompletableFuture(client.asyncGet(encodedKeyFor(key), transcoder))
+                .exceptionally(
+                        Errors.rethrow()
+                                .wrapFunction(
+                                        e -> {
+                                            throw new CacheException(e);
+                                        }))
+                .join();
+
         if (statisticsEnabled) {
             if (value != null) {
                 statistics.increaseHits(1);
@@ -221,17 +230,18 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
         }
 
         if (value == null && cacheLoader != null && configuration.isReadThrough()) {
+            timer.stop();
             value = (V) cacheLoader.load(key);
             if (value != null) {
                 final int seconds = getExpiryForAccess();
                 asCompletableFuture(client.set(encodedKeyFor(key), seconds, value, transcoder))
-                    .exceptionally(
-                            Errors.rethrow()
-                                .wrapFunction(
-                                        e -> {
-                                            throw new CacheException(e);
-                                        }))
-                    .thenAccept(v -> {});
+                        .exceptionally(
+                                Errors.rethrow()
+                                        .wrapFunction(
+                                                e -> {
+                                                    throw new CacheException(e);
+                                                }))
+                        .join();
             }
         }
 
@@ -244,18 +254,23 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
     @SuppressWarnings("unchecked")
     @Override
     public Map<K, V> getAll(Set<? extends K> keys) {
-        if (keys == null) {
+        if (keys == null || keys.size() == 0) {
             return Collections.<K, V> emptyMap();
         }
 
         MemcachedClient client = checkState();
-        Map<Object, V> kvp = client
-            .<V> getBulk(
-                    keys.stream().<String> map(key -> encodedKeyFor(key)).collect(Collectors.toSet()),
-                    transcoder)
-            .entrySet()
-            .stream()
-            .collect(Collectors.toMap(entry -> decodeKeyFor(entry.getKey()), Map.Entry::getValue));
+        Map<Object, V> kvp = asCompletableFuture(client.<V> asyncGetBulk(
+                keys.stream().<String> map(key -> encodedKeyFor(key)).collect(Collectors.toSet()), transcoder))
+                .exceptionally(
+                        Errors.rethrow()
+                                .wrapFunction(
+                                        e -> {
+                                            throw new CacheException(e);
+                                        }))
+                .join()
+                .entrySet()
+                .stream()
+                .collect(Collectors.toMap(entry -> decodeKeyFor(entry.getKey()), Map.Entry::getValue));
 
         if (configuration.isReadThrough() && cacheLoader != null) {
             Map<String, V> lkvp = cacheLoader.loadAll(keys.stream()
@@ -265,19 +280,16 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
             lkvp.entrySet()
                 .stream()
                 .filter(entry -> entry.getValue() != null)
-                .map(
-                        entry -> asCompletableFuture(
-                                client.set(
-                                        encodedKeyFor(entry.getKey()), seconds, entry.getValue(), transcoder)))
-                .forEach(
-                        cf -> {
+                .map(entry -> asCompletableFuture(
+                                client.set(encodedKeyFor(entry.getKey()), seconds, entry.getValue(), transcoder)))
+                .forEach(cf -> {
                             cf.exceptionally(
                                     Errors.rethrow()
                                         .wrapFunction(
                                                 e -> {
                                                     throw new CacheException(e);
                                                 }))
-                                .thenAccept(v -> {});
+                                .join();
                         });
             kvp.putAll(lkvp);
         }
@@ -347,7 +359,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
                                 e -> {
                                     throw new CacheException(e);
                                 }))
-            .thenAccept(v -> {});
+            .join();
         if (statisticsEnabled) {
             statistics.increasePuts(1);
             statistics.addGetTime(timer.elapsed());
@@ -372,6 +384,9 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
             // NOTE: skip setting the value here, we're about to change it
             // client.set(encodedKeyFor(key), seconds, previousValue, transcoder);
         }
+        if (previousValue != null) {
+            statistics.increaseHits(1);
+        }
 
         asCompletableFuture(client.set(encodedKeyFor(key), seconds, value, transcoder))
             .exceptionally(
@@ -380,7 +395,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
                                 e -> {
                                     throw new CacheException(e);
                                 }))
-            .thenAccept(v -> {});
+            .join();
 
         if (statisticsEnabled) {
             timer.stop();
@@ -401,18 +416,15 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
         MemcachedClient client = checkState();
         map.entrySet()
             .stream()
-            .map(
-                    entry -> asCompletableFuture(
-                            client.set(encodedKeyFor(entry.getKey()), seconds, entry.getValue())))
-            .forEach(
-                    cf -> {
+            .map(entry -> asCompletableFuture(client.set(encodedKeyFor(entry.getKey()), seconds, entry.getValue())))
+            .forEach(cf -> {
                         cf.exceptionally(
                                 Errors.rethrow()
                                     .wrapFunction(
                                             e -> {
                                                 throw new CacheException(e);
                                             }))
-                            .thenAccept(v -> {});
+                            .join();
                     });
     }
 
@@ -426,6 +438,9 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
         final Timer timer = Timer.start(!statisticsEnabled);
         final int seconds = getExpiryForCreation();
         MemcachedClient client = checkState();
+        // NOTE: 'add()' has the semantics of 'putIfAbsent()' the docs read:
+        // "Add an object to the cache iff it does not exist already." (so, bad name but correct albeit
+        // unintuitive API call here).
         boolean applied = asCompletableFuture(client.add(encodedKeyFor(key), seconds, value, transcoder))
             .exceptionally(
                     Errors.rethrow()
@@ -452,20 +467,23 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
         final boolean statisticsEnabled = configuration.isStatisticsEnabled();
         final Timer timer = Timer.start(!statisticsEnabled);
         MemcachedClient client = checkState();
-        if (this.asCompletableFuture(client.delete(encodedKeyFor(key)))
-            .exceptionally(
-                    Errors.rethrow()
-                        .wrapFunction(
-                                e -> {
-                                    throw new CacheException(e);
-                                }))
-            .join()) {
-            // applied == true
-            if (statisticsEnabled) {
-                statistics.increaseRemovals(1);
-                statistics.addRemoveTime(timer.elapsed());
+        try {
+            if (this.asCompletableFuture(client.delete(encodedKeyFor(key)))
+                .exceptionally(
+                        Errors.rethrow()
+                            .wrapFunction(
+                                    e -> {
+                                        throw new CacheException(e);
+                                    }))
+                    .get()) {
+                if (statisticsEnabled) {
+                    statistics.increaseRemovals(1);
+                    statistics.addRemoveTime(timer.elapsed());
+                }
+                return true;
             }
-            return true;
+        } catch (ExecutionException | InterruptedException e) {
+            throw new CacheException(e);
         }
         return false;
     }
@@ -625,8 +643,11 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
 
     @Override
     public void removeAll(Set<? extends K> keys) {
-        if (keys != null) {
+        if (keys == null) {
+            throw new NullPointerException();
+        }
 
+        if (keys.size() > 0) {
             MemcachedClient client = checkState();
             keys.stream()
                 .map(key -> asCompletableFuture(client.delete(encodedKeyFor(key))))
@@ -638,7 +659,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
                                                 e -> {
                                                     throw new CacheException(e);
                                                 }))
-                                .thenAccept(v -> {});
+                                .join();
                         });
         }
     }
@@ -740,9 +761,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
 
     @Override
     public boolean isClosed() {
-        synchronized (closed) {
-            return closed.get();
-        }
+        return closed.get();
     }
 
     @Override
@@ -852,7 +871,7 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
 
         public long elapsed() {
             if (started > 0) {
-                long now = System.nanoTime() / 1000;
+                long now = stopped == -1 ? System.nanoTime() / 1000 : stopped;
                 return now - started;
             }
             return 0;
