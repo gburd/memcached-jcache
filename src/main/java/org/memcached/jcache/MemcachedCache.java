@@ -18,12 +18,7 @@ package org.memcached.jcache;
 import java.lang.management.ManagementFactory;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -260,7 +255,9 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
 
         MemcachedClient client = checkState();
         Map<Object, V> kvp = asCompletableFuture(client.<V> asyncGetBulk(
-                keys.stream().<String> map(key -> encodedKeyFor(key)).collect(Collectors.toSet()), transcoder))
+                keys.stream()
+                        .filter(Objects::nonNull)
+                        .<String> map(key -> encodedKeyFor(key)).collect(Collectors.toSet()), transcoder))
                 .exceptionally(
                         Errors.rethrow()
                                 .wrapFunction(
@@ -270,6 +267,12 @@ public class MemcachedCache<K, V> implements javax.cache.Cache<K, V> {
                 .join()
                 .entrySet()
                 .stream()
+                .filter(entry -> {
+                    if (entry.getKey() == null || entry.getValue() == null) {
+                        return false;
+                    }
+                    return true;
+                })
                 .collect(Collectors.toMap(entry -> decodeKeyFor(entry.getKey()), Map.Entry::getValue));
 
         if (configuration.isReadThrough() && cacheLoader != null) {
