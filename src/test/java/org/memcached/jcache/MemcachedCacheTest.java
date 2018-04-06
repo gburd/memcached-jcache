@@ -375,8 +375,21 @@ public class MemcachedCacheTest {
         Set<String> keys = Sets.newHashSet("1", null, "2");
 
         try {
-            cache.getAll(keys);
-            fail("should have thrown an exception - null key in keys not allowed");
+            // The Onshape jcache/memcached filters out null keys, so the below
+            // test doens't fail (as it does in the unforked repo).
+            Map<String, Integer> foundKeys = cache.getAll(keys);
+            assertNotNull(foundKeys);
+            assertEquals(0, foundKeys.size());
+
+            cache.put("1", new Integer(1));
+            cache.put("2", new Integer(2));
+
+            foundKeys = cache.getAll(keys);
+            assertNotNull(foundKeys);
+            assertEquals(2, foundKeys.size());
+
+            cache.put(null, null);
+            fail("Should not reach here - null key is OK, null value is not");
         }
         catch (NullPointerException e) {
             // expected
